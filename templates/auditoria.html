@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Auditoria — CACON{% endblock %}
+{% block content %}
+<h1>Auditoria</h1>
+<p class="subtitulo">Últimas {{ logs|length }} ações registradas no sistema.</p>
+
+<div class="card">
+  {% if logs %}
+  <table class="tabela-agenda">
+    <thead>
+      <tr>
+        <th>Data/Hora</th>
+        <th>Ação</th>
+        <th>Paciente</th>
+        <th>Detalhe</th>
+        <th>Origem</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td style="font-size:13px;color:#6b7280;white-space:nowrap">{{ log.registrado_em }}</td>
+        <td><span class="badge badge-azul" style="font-size:12px">{{ log.acao }}</span></td>
+        <td style="font-weight:600">{{ log.paciente_nome or '—' }}</td>
+        <td style="color:#6b7280;font-size:13px">{{ log.detalhes or '' }}</td>
+        <td>
+          {% if log.usuario == 'triagem' %}
+            <span class="badge badge-verde">triagem</span>
+          {% else %}
+            <span style="font-size:13px;color:#9ca3af">{{ log.usuario }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">Nenhuma ação registrada ainda.</p>
+  {% endif %}
+</div>
+{% endblock %}

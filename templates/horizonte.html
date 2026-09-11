@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Horizonte de Retornos — CACON{% endblock %}
+
+{% block content %}
+<h1>Horizonte de Retornos</h1>
+<p class="subtitulo">Pacientes com ciclo ativo e retorno esperado nos próximos {{ dias }} dias.</p>
+
+<!-- Filtro de prazo -->
+<div style="display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap; align-items:center;">
+  <a href="/horizonte?dias=7"
+     class="btn btn-sm {% if dias == 7 %}btn-primary{% else %}btn-ghost{% endif %}">7 dias</a>
+  <a href="/horizonte?dias=14"
+     class="btn btn-sm {% if dias == 14 %}btn-primary{% else %}btn-ghost{% endif %}">14 dias</a>
+  <a href="/horizonte?dias=30"
+     class="btn btn-sm {% if dias == 30 %}btn-primary{% else %}btn-ghost{% endif %}">30 dias</a>
+  <span style="width:1px; background:#e5e7eb; height:24px; display:inline-block; margin:0 4px;"></span>
+  <a href="/lista?dias={{ dias }}" class="btn btn-sm btn-ghost">Gerar lista</a>
+</div>
+
+{% if not pacientes %}
+<div class="card">
+  <div class="empty">
+    Nenhum paciente com retorno esperado nos próximos {{ dias }} dias.
+  </div>
+</div>
+{% else %}
+{% set n_agendado   = pacientes | selectattr('situacao', 'eq', 'agendado')   | list | length %}
+{% set n_aguardando = pacientes | selectattr('situacao', 'eq', 'aguardando') | list | length %}
+{% set ns_at = namespace(atrasado=0) %}
+{% for p in pacientes %}{% if p.dias_restantes < 0 %}{% set ns_at.atrasado = ns_at.atrasado + 1 %}{% endif %}{% endfor %}
+
+<div class="vitals-bar" style="margin-bottom:20px;">
+  <div class="vital-item">
+    <div class="vital-num">{{ pacientes | length }}</div>
+    <div class="vital-label">No horizonte</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num" style="color:#15803d;">{{ n_agendado }}</div>
+    <div class="vital-label">Agendados</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num" style="color:#d97706;">{{ n_aguardando }}</div>
+    <div class="vital-label">Aguardando</div>
+  </div>
+  {% if ns_at.atrasado > 0 %}
+  <div class="vital-item">
+    <div class="vital-num" style="color:#dc2626;">{{ ns_at.atrasado }}</div>
+    <div class="vital-label">Atrasados</div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <table class="tabela-agenda">
+    <thead>
+      <tr>
+        <th>Paciente</th>
+        <th>Protocolo</th>
+        <th>Ciclo</th>
+        <th>Última sessão</th>
+        <th>Esperado em</th>
+        <th>Dias</th>
+        <th>Situação</th>
+        <th>Ação</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in pacientes %}
+      <tr {% if p.dias_restantes < 0 %}style="background:#fff5f5;"{% endif %}>
+        <td><strong>{{ p.nome }}</strong></td>
+        <td style="font-size:13px; color:#4b5563;">{{ labels.get(p.protocolo, p.protocolo) }}</td>
+        <td style="font-size:13px;">
+          {{ p.ciclo_atual }}{% if p.total_ciclos %} / {{ p.total_ciclos }}{% endif %}
+        </td>
+        <td style="font-size:13px; color:#6b7280;">{{ p.ultima_sessao }}</td>
+        <td style="font-size:13px; font-weight:600;">{{ p.proxima_esperada }}</td>
+        <td>
+          {% if p.dias_restantes <= 0 %}
+            <span style="color:#ef4444; font-weight:700;">
+              {% if p.dias_restantes == 0 %}Hoje{% else %}{{ p.dias_restantes }}d{% endif %}
+            </span>
+          {% elif p.dias_restantes <= 7 %}
+            <span style="color:#f59e0b; font-weight:700;">{{ p.dias_restantes }}d</span>
+          {% else %}
+            <span style="color:#374151;">{{ p.dias_restantes }}d</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if p.situacao == 'agendado' %}
+            <span class="badge badge-verde">Agendado p/ {{ p.ja_agendado }}</span>
+          {% else %}
+            <span class="badge" style="background:#f3f4f6; color:#6b7280;">Aguardando</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if p.situacao == 'aguardando' %}
+          <button class="btn btn-primary btn-sm"
+            onclick="abrirModalAgendar({{ p.paciente_id }}, '{{ p.nome }}', '{{ p.proxima_esperada }}', {{ p.intervalo_dias }}, {{ p.duracao_mediana or 'null' }})">
+            Agendar
+          </button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- Modal de agendamento -->
+<div id="modal-agendar" class="modal-overlay" style="display:none;"
+     onclick="if(event.target===this) this.style.display='none'">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-agendar-titulo">Agendar próxima sessão</span>
+      <button class="modal-close" onclick="document.getElementById('modal-agendar').style.display='none'">✕</button>
+    </div>
+    <form method="post" id="form-agendar">
+      <input type="hidden" name="dias" value="{{ dias }}">
+      <div class="form-row">
+        <div class="field">
+          <label>Data da próxima sessão</label>
+          <input type="date" id="modal-data-proxima" name="data_proxima" required
+            style="width:100%; padding:8px; border:1.5px solid #d1d5db; border-radius:8px; font-size:14px;">
+        </div>
+        <div class="field">
+          <label>Intervalo (dias)</label>
+          <input type="number" id="modal-intervalo" name="intervalo_dias" min="1" max="365" required
+            style="width:100%; padding:8px; border:1.5px solid #d1d5db; border-radius:8px; font-size:14px;">
+        </div>
+      </div>
+      <div id="modal-duracao-hint" style="display:none; margin-top:10px;
+        font-size:13px; color:#6b7280; background:#f9fafb; padding:8px 12px; border-radius:8px;">
+      </div>
+      <input type="hidden" id="modal-qt-override" name="qt_override_min" disabled>
+      <div style="margin-top:16px; text-align:right;">
+        <button type="submit" class="btn btn-primary">Confirmar agendamento</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function abrirModalAgendar(pacienteId, nome, dataEsperada, intervalo, duracaoMediana) {
+  document.getElementById('modal-agendar-titulo').textContent = 'Agendar — ' + nome;
+  document.getElementById('form-agendar').action = '/agendar/' + pacienteId;
+  document.getElementById('modal-data-proxima').value = dataEsperada;
+  document.getElementById('modal-intervalo').value = intervalo;
+
+  var hint = document.getElementById('modal-duracao-hint');
+  var qtInput = document.getElementById('modal-qt-override');
+  if (duracaoMediana) {
+    hint.style.display = 'block';
+    hint.textContent = 'Duração real média deste paciente: ' + duracaoMediana + ' min — será usada como estimativa na próxima sessão.';
+    qtInput.value = duracaoMediana;
+    qtInput.disabled = false;
+  } else {
+    hint.style.display = 'none';
+    qtInput.disabled = true;
+  }
+
+  document.getElementById('modal-agendar').style.display = 'flex';
+}
+</script>
+{% endblock %}

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Confirmação de Presença — CACON{% endblock %}
+
+{% block content %}
+<h1>Confirmação de Presença</h1>
+<p class="subtitulo">
+  {% if data == hoje %}
+    Hoje — {{ data }}
+  {% else %}
+    {{ data }}
+  {% endif %}
+</p>
+
+
+{% if not pacientes %}
+<div class="card">
+  <div class="empty">
+    Nenhum paciente agendado para essa data.<br>
+    <a href="/" class="btn btn-primary" style="margin-top:16px; display:inline-flex;">← Triagem</a>
+  </div>
+</div>
+{% else %}
+
+{% set confirmados  = pacientes | selectattr('confirmado', 'eq', 'sim')  | list %}
+{% set nao_confirm  = pacientes | selectattr('confirmado', 'eq', 'nao')  | list %}
+{% set pendentes    = pacientes | selectattr('confirmado', 'equalto', none) | list %}
+
+<div class="vitals-bar" style="margin-bottom:20px;">
+  <div class="vital-item">
+    <div class="vital-num" style="color:#15803d;">{{ confirmados | length }}</div>
+    <div class="vital-label">Confirmados</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num" style="color:#dc2626;">{{ nao_confirm | length }}</div>
+    <div class="vital-label">Não confirmaram</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num" style="color:#9ca3af;">{{ pendentes | length }}</div>
+    <div class="vital-label">Pendentes</div>
+  </div>
+</div>
+
+<div class="card">
+  <table class="tabela-agenda">
+    <thead>
+      <tr>
+        <th>Chegada prev.</th>
+        <th>Paciente</th>
+        <th>Protocolo</th>
+        <th>Confirmação</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ag in pacientes %}
+      {% set s = sessoes_map.get(ag.nome) %}
+      <tr>
+        <td class="hora">{{ fmt(s.chegada) if s else '—' }}</td>
+        <td><strong>{{ ag.nome }}</strong></td>
+        <td style="font-size:13px; color:#4b5563;">{{ labels.get(ag.protocolo, ag.protocolo) }}</td>
+        <td>
+          {% if ag.confirmado == 'sim' %}
+            <span class="badge badge-verde">Confirmado</span>
+            &nbsp;
+            <a href="#" onclick="document.getElementById('form-alterar-{{ ag.ag_id }}').style.display='inline'; return false;"
+               style="font-size:12px; color:#4e9af1;">alterar</a>
+            <span id="form-alterar-{{ ag.ag_id }}" style="display:none; margin-left:8px;">
+              <form method="post" action="/confirmar/{{ ag.ag_id }}" style="display:inline">
+                <input type="hidden" name="data_sessao" value="{{ data }}">
+                <input type="hidden" name="valor" value="nao">
+                <button type="submit" class="btn btn-danger btn-sm">Não confirmou</button>
+              </form>
+            </span>
+          {% elif ag.confirmado == 'nao' %}
+            <span class="badge badge-vermelho">Não confirmou</span>
+            &nbsp;
+            <a href="#" onclick="document.getElementById('form-alterar-{{ ag.ag_id }}').style.display='inline'; return false;"
+               style="font-size:12px; color:#4e9af1;">alterar</a>
+            <span id="form-alterar-{{ ag.ag_id }}" style="display:none; margin-left:8px;">
+              <form method="post" action="/confirmar/{{ ag.ag_id }}" style="display:inline">
+                <input type="hidden" name="data_sessao" value="{{ data }}">
+                <input type="hidden" name="valor" value="sim">
+                <button type="submit" class="btn btn-primary btn-sm">Confirmou</button>
+              </form>
+            </span>
+          {% else %}
+            <form method="post" action="/confirmar/{{ ag.ag_id }}" style="display:inline">
+              <input type="hidden" name="data_sessao" value="{{ data }}">
+              <input type="hidden" name="valor" value="sim">
+              <button type="submit" class="btn btn-primary btn-sm">✓ Confirmou</button>
+            </form>
+            <form method="post" action="/confirmar/{{ ag.ag_id }}" style="display:inline; margin-left:6px;">
+              <input type="hidden" name="data_sessao" value="{{ data }}">
+              <input type="hidden" name="valor" value="nao">
+              <button type="submit" class="btn btn-danger btn-sm">✕ Não confirmou</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.python-version
+*.db
+*.db-shm
+*.db-wal
+uv.lock
+config.py
+backups/
+*.pdf

@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Relatório — CACON{% endblock %}
+
+{% block content %}
+<style>
+  .obs-field {
+    width: 100%;
+    min-height: 40px;
+    padding: 6px 10px;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #374151;
+    resize: vertical;
+    background: #fafafa;
+    transition: border-color .15s;
+  }
+  .obs-field:focus { outline: none; border-color: #4e9af1; background: #fff; }
+  .obs-field::placeholder { color: #d1d5db; }
+
+  @media print {
+    .no-print         { display: none !important; }
+    .obs-field        { border: none; background: transparent; resize: none; padding: 0; min-height: unset; }
+    .card             { box-shadow: none; border: 1px solid #ddd; page-break-inside: avoid; }
+    .obs-form-actions { display: none !important; }
+    body              { background: #fff; }
+  }
+</style>
+
+<div style="display:flex; align-items:center; gap:16px; margin-bottom:4px; flex-wrap:wrap;">
+  <h1 style="margin:0;">Relatório de fim de dia</h1>
+  <div class="no-print" style="display:flex; gap:8px; margin-left:auto;">
+    <a href="/relatorio/csv?data={{ data }}" class="btn btn-ghost btn-sm">Exportar CSV</a>
+    <button onclick="window.print()" class="btn btn-ghost btn-sm">Imprimir / PDF</button>
+  </div>
+</div>
+<p class="subtitulo">{{ data }}{% if data == hoje %} — hoje{% endif %}</p>
+
+<!-- Seletor de data -->
+<form method="get" action="/relatorio" class="no-print"
+      style="margin-bottom:24px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+  <label style="font-weight:600; font-size:14px;">Data:</label>
+  <input type="date" name="data" value="{{ data }}"
+    style="padding:8px 12px; border:1.5px solid #d1d5db; border-radius:8px; font-size:14px;">
+  <button type="submit" class="btn btn-ghost btn-sm">Ver</button>
+  {% if data != hoje %}
+  <a href="/relatorio" class="btn btn-ghost btn-sm">Hoje</a>
+  {% endif %}
+</form>
+
+<!-- ═══ RESUMO DO DIA ══════════════════════════════════════════════ -->
+<div class="vitals-bar" style="margin-bottom:24px;">
+  <div class="vital-item">
+    <div class="vital-num">{{ stats.total }}</div>
+    <div class="vital-label">Total no dia</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num" style="color:#1e40af;">{{ stats.agendados }}</div>
+    <div class="vital-label">Agendados</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num" style="color:#374151;">{{ stats.walk_ins }}</div>
+    <div class="vital-label">Walk-ins</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num" style="color:#15803d;">{{ stats.concluidos }}</div>
+    <div class="vital-label">Concluídos</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num"
+         style="color:{% if stats.intercorrencias|length > 0 %}#d97706{% else %}#9ca3af{% endif %};">
+      {{ stats.intercorrencias | length }}
+    </div>
+    <div class="vital-label">Intercorrências</div>
+  </div>
+</div>
+
+<!-- ═══ INTERCORRÊNCIAS ════════════════════════════════════════════ -->
+{% if stats.intercorrencias %}
+<div class="card" style="margin-bottom:24px;">
+  <h2>Intercorrências registradas</h2>
+  <table class="tabela-agenda">
+    <thead>
+      <tr><th>Paciente</th><th>Observação</th></tr>
+    </thead>
+    <tbody>
+      {% for ic in stats.intercorrencias %}
+      <tr>
+        <td><strong>{{ ic.nome }}</strong></td>
+        <td style="color:#374151;">{{ ic.texto }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- ═══ CAPACIDADE DO DIA ══════════════════════════════════════════ -->
+<div class="card" style="margin-bottom:24px;">
+  <h2>Capacidade calculada</h2>
+  <table class="tabela-agenda">
+    <thead>
+      <tr><th>Parâmetro</th><th>Valor</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Técnico-horas de punção</td><td><strong>{{ cap_dia.tecnico_horas }} h</strong></td></tr>
+      <tr><td>Teto do dia</td><td><strong>{{ cap_dia.teto }} pacientes</strong></td></tr>
+      <tr><td>Pool agendado ({{ (100 - RAZAO_WALK_IN * 100)|int }}%)</td><td>{{ cap_dia.n_agendado }}</td></tr>
+      <tr><td>Pool walk-in ({{ (RAZAO_WALK_IN * 100)|int }}%)</td><td>{{ cap_dia.n_walk_in }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══ PARÂMETROS OPERACIONAIS ═══════════════════════════════════ -->
+<form method="post" action="/relatorio/observacoes">
+  <input type="hidden" name="data" value="{{ data }}">
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
+      <div>
+        <h2 style="margin:0;">Parâmetros operacionais (calibráveis)</h2>
+        <p style="font-size:13px; color:#6b7280; margin-top:4px;">
+          Estimativas em uso. Preencha a coluna de observação com o que foi medido ou percebido no dia.
+        </p>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm obs-form-actions no-print">Salvar observações</button>
+    </div>
+    <table class="tabela-agenda">
+      <thead>
+        <tr>
+          <th>Variável</th>
+          <th>Descrição</th>
+          <th>Valor atual</th>
+          <th>Unidade</th>
+          <th style="min-width:200px;">Observação do dia</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for nome_var, descricao, valor, unidade in parametros %}
+        <tr>
+          <td style="font-family:monospace; font-size:13px; color:#1e40af;">{{ nome_var }}</td>
+          <td style="font-size:13px; color:#4b5563;">{{ descricao }}</td>
+          <td><strong>{{ valor }}</strong></td>
+          <td style="font-size:13px; color:#6b7280;">{{ unidade }}</td>
+          <td>
+            <textarea
+              name="obs_{{ nome_var }}"
+              class="obs-field"
+              placeholder="Ex.: mediu-se X no dia"
+              rows="1">{{ obs.get(nome_var, '') }}</textarea>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="obs-form-actions no-print" style="margin-top:16px; text-align:right;">
+      <button type="submit" class="btn btn-primary">Salvar observações</button>
+    </div>
+  </div>
+</form>
+
+{% endblock %}

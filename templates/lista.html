@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Lista de Agendamentos — CACON{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:8px;">
+  <div>
+    <h1>Lista de Agendamentos</h1>
+    <p class="subtitulo">
+      Próximos {{ dias }} dias · Horário de chegada = punção prevista − {{ offset_h }}h (estimativa)
+    </p>
+  </div>
+  <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap;">
+    <a href="/lista?dias=7"  class="btn btn-sm {% if dias == 7  %}btn-primary{% else %}btn-ghost{% endif %}">7 dias</a>
+    <a href="/lista?dias=14" class="btn btn-sm {% if dias == 14 %}btn-primary{% else %}btn-ghost{% endif %}">14 dias</a>
+    <a href="/lista?dias=30" class="btn btn-sm {% if dias == 30 %}btn-primary{% else %}btn-ghost{% endif %}">30 dias</a>
+    <a href="/lista.csv?dias={{ dias }}" class="btn btn-ghost btn-sm">Baixar planilha</a>
+    <button class="btn btn-ghost btn-sm" onclick="window.print()">Imprimir / PDF</button>
+  </div>
+</div>
+
+{% if not registros %}
+<div class="card">
+  <div class="empty">Nenhum paciente agendado nos próximos {{ dias }} dias.</div>
+</div>
+{% else %}
+<div class="card" style="padding:0; overflow:hidden;">
+  <table class="tabela-agenda" style="table-layout:fixed; width:100%;">
+    <colgroup>
+      <col style="width:28%;">
+      <col style="width:14%;">
+      <col style="width:13%;">
+      <col style="width:13%;">
+      <col style="width:32%;">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Prontuário</th>
+        <th>Data</th>
+        <th>Chegada</th>
+        <th>Telefone</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% set ns = namespace(data_atual='') %}
+      {% for r in registros %}
+        {% if r.data_iso != ns.data_atual %}
+          {% set ns.data_atual = r.data_iso %}
+          <tr>
+            <td colspan="5" style="background:#f3f4f6; font-size:12px; font-weight:700;
+                color:#6b7280; text-transform:uppercase; letter-spacing:.5px; padding:8px 14px;">
+              {{ r.data_fmt }}
+            </td>
+          </tr>
+        {% endif %}
+        <tr>
+          <td><strong>{{ r.nome }}</strong></td>
+          <td style="font-size:13px; color:#374151;">{{ r.num_prontuario or '—' }}</td>
+          <td style="font-size:13px; color:#374151;">{{ r.data_fmt }}</td>
+          <td style="font-weight:700; font-size:15px;">{{ r.horario_chegada }}</td>
+          <td style="font-size:13px; color:#374151;">{{ r.telefone or '—' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p style="font-size:12px; color:#9ca3af; margin-top:8px;" class="no-print">
+  {{ registros | length }} paciente(s) · gerado em {{ hoje }}
+</p>
+{% endif %}
+{% endblock %}

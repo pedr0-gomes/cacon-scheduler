@@ -1,0 +1,420 @@
+{% extends "base.html" %}
+{% block title %}Triagem — CACON{% endblock %}
+
+{% block content %}
+
+{# ── Data legível em pt-BR ──────────────────────────────────────────────── #}
+{% set _dias_semana  = ["Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado","Domingo"] %}
+{% set _meses        = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"] %}
+{% set _dp           = data.split('-') %}
+{% set _ano          = _dp[0]|int %}
+{% set _mes          = _dp[1]|int %}
+{% set _dia          = _dp[2]|int %}
+{# Tomohiko Sakamoto — dia da semana sem filtro Jinja #}
+{% set _t = [0,3,2,5,0,3,5,1,4,6,2,4] %}
+{% set _y = _ano - (1 if _mes < 3 else 0) %}
+{% set _dow = (_y + (_y // 4) - (_y // 100) + (_y // 400) + _t[_mes - 1] + _dia) % 7 %}
+{# _dow: 0=dom,1=seg,…,6=sab — ajustar p/ nossa lista (seg=0) #}
+{% set _dow_idx = (_dow + 6) % 7 %}
+{% set data_legivel = _dias_semana[_dow_idx] ~ ", " ~ "%02d"|format(_dia) ~ " de " ~ _meses[_mes - 1] ~ " de " ~ _ano %}
+
+{# ── Contadores ─────────────────────────────────────────────────────────── #}
+{% set n_total    = pacientes | length %}
+{% set n_agendado = pacientes | selectattr('status','eq','agendado') | list | length %}
+{% set n_walkin   = pacientes | selectattr('status','eq','walk_in')  | list | length %}
+{% set vagas_wi   = cap_dia.n_walk_in - n_walkin %}
+
+{# ── Mapa nome → ag (para lookup na tabela) ─────────────────────────────── #}
+{% set ag_map = {} %}
+{% for p in pacientes %}
+  {% if ag_map.update({p.nome: p}) %}{% endif %}
+{% endfor %}
+
+<!-- ═══════════════════════ CABEÇALHO ═══════════════════════ -->
+<h1>Triagem</h1>
+<p class="subtitulo">{{ data_legivel }}</p>
+
+<!-- ═══════════════════════ BARRA DE AÇÕES ══════════════════ -->
+<div style="display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
+  <button class="btn btn-primary btn-sm" onclick="document.getElementById('modal-walkin').style.display='flex'">
+    + Walk-in
+  </button>
+</div>
+
+<!-- ═══════════════════════ VITALS BAR ════════════════════════ -->
+<div class="vitals-bar no-print" style="margin-bottom:20px;">
+  <div class="vital-item">
+    <div class="vital-num">{{ n_total }}</div>
+    <div class="vital-label">Pacientes</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num" style="color:#1e40af;">{{ n_agendado }}</div>
+    <div class="vital-label">Agendados</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num" style="color:#374151;">{{ n_walkin }}</div>
+    <div class="vital-label">Walk-ins</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num" style="color:{% if vagas_wi > 5 %}#15803d{% elif vagas_wi > 0 %}#d97706{% else %}#dc2626{% endif %};">{{ vagas_wi }}</div>
+    <div class="vital-label">Vagas walk-in</div>
+  </div>
+  <div class="vital-item no-print" style="display:flex; flex-direction:column; justify-content:center; gap:8px; background:transparent; box-shadow:none; padding:0;">
+    <form method="post" action="/limpar" style="margin:0;">
+      <input type="hidden" name="data_sessao" value="{{ data }}">
+      <button type="submit" class="btn btn-ghost btn-sm" style="width:100%;">Limpar tudo</button>
+    </form>
+    <button onclick="window.print()" class="btn btn-ghost btn-sm">Imprimir</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════ CAPACIDADE POR JANELA ════════════════ -->
+<div id="bandas-container" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:12px; margin-bottom:24px;">
+  {% for b in bandas %}
+  <div class="card" style="margin-bottom:0; padding:16px 18px;"
+       data-inicio="{{ b.inicio }}" data-fim="{{ b.fim }}" data-cap="{{ b.capacidade }}">
+    <div style="font-size:13px; font-weight:700; color:#374151; margin-bottom:2px;">{{ b.label }}</div>
+    <div style="font-size:12px; color:#6b7280; margin-bottom:10px;">
+      {{ b.staff }} profissionais · cap. {{ b.capacidade }}
+    </div>
+    <div style="font-size:30px; font-weight:800; color:#1a1a2e; line-height:1;" class="banda-count">0</div>
+    <div style="font-size:11px; color:#9ca3af; margin-bottom:8px;" class="banda-frac">0 / {{ b.capacidade }}</div>
+    <div style="background:#e5e7eb; border-radius:6px; height:8px; overflow:hidden;">
+      <div class="banda-bar" style="height:100%; width:0%; border-radius:6px; transition:width .4s;"></div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<style>
+@media (max-width: 700px) {
+  #bandas-container { grid-template-columns: repeat(2, 1fr) !important; }
+}
+</style>
+
+<!-- ═══════════════════════ TABELA PRINCIPAL ════════════════ -->
+<div class="card">
+  <h2 style="margin-bottom:16px;">Escala do dia — {{ data }}</h2>
+  <table class="tabela-agenda">
+    <thead>
+      <tr>
+        <th>Chegada</th>
+        <th>Poltrona</th>
+        <th>Paciente</th>
+        <th>Prontuário</th>
+        <th>Telefone</th>
+        <th>Protocolo</th>
+        <th>Cor</th>
+        <th>Tipo</th>
+        <th>Confirmação</th>
+        <th class="no-print">Ações</th>
+      </tr>
+    </thead>
+    <tbody id="tabela-body">
+      {% if sessoes %}
+        {% set ns = namespace(banda_idx=-1) %}
+        {% for s in sessoes %}
+          {% set ag = ag_map.get(s.paciente.nome) %}
+          {% set cor = s.paciente.cor_qt %}
+          {# Detectar mudança de banda — inserir header quando chegada entra em nova janela #}
+          {% set cur_banda = namespace(found=-1) %}
+          {% for b in bandas %}
+            {% if s.chegada >= b.inicio and s.chegada < b.fim %}
+              {% set cur_banda.found = loop.index0 %}
+            {% endif %}
+          {% endfor %}
+          {% if cur_banda.found != ns.banda_idx %}
+            {% set ns.banda_idx = cur_banda.found %}
+            {% if cur_banda.found >= 0 %}
+              {% set b = bandas[cur_banda.found] %}
+              <tr class="banda-header" style="background:#f8fafc;">
+                <td colspan="10" style="padding:8px 14px; font-size:12px; font-weight:700;
+                    color:#6b7280; text-transform:uppercase; letter-spacing:.5px;
+                    border-bottom:2px solid #e5e7eb;">
+                  {{ b.label }} — {{ b.staff }} profissionais · cap. {{ b.capacidade }}
+                </td>
+              </tr>
+            {% endif %}
+          {% endif %}
+          <tr class="row-{{ cor }}">
+            <td class="hora">{{ fmt(s.chegada) }}</td>
+            <td><span class="poltrona-badge">{{ s.poltrona }}</span></td>
+            <td>
+              {% if ag %}
+                <strong title="{{ ag.nome_mae or '' }}{% if ag.nome_mae and ag.data_nascimento %} · {% endif %}{{ ag.data_nascimento or '' }}"
+                  style="cursor:help;">{{ s.paciente.nome }}</strong>
+              {% else %}
+                <strong>{{ s.paciente.nome }}</strong>
+              {% endif %}
+            </td>
+            <td style="font-size:13px; color:#374151;">{{ ag.num_prontuario if ag and ag.num_prontuario else '—' }}</td>
+            <td style="font-size:13px; color:#374151;">{{ ag.telefone if ag and ag.telefone else '—' }}</td>
+            <td style="font-size:13px; color:#4b5563;">{{ labels.get(s.paciente.protocolo, s.paciente.protocolo) }}</td>
+            <td><span class="badge badge-{{ cor }}">{{ cor_label[cor] }}</span></td>
+            <td>
+              {% if ag and ag.status == 'agendado' %}
+                <span class="badge badge-azul" style="font-size:12px;">agendado</span>
+              {% else %}
+                <span class="badge" style="background:#f3f4f6; color:#6b7280; font-size:12px;">walk-in</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if ag %}
+                {% if ag.confirmado == 'sim' %}
+                  <span class="badge badge-verde">Confirmado</span>
+                {% elif ag.confirmado == 'nao' %}
+                  <span class="badge badge-vermelho">Não confirmou</span>
+                {% else %}
+                  <span class="badge" style="background:#f3f4f6; color:#6b7280;">Pendente</span>
+                {% endif %}
+              {% else %}
+                <span class="badge" style="background:#f3f4f6; color:#6b7280;">Pendente</span>
+              {% endif %}
+            </td>
+            <td class="no-print">
+              {% if ag %}
+              <form method="post" action="/remover/{{ ag.ag_id }}" style="margin:0;">
+                <input type="hidden" name="data_sessao" value="{{ data }}">
+                <button type="submit" class="btn btn-ghost btn-sm"
+                  style="padding:4px 10px; font-size:13px; color:#ef4444;">✕</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr>
+          <td colspan="8">
+            <div class="empty">
+              Nenhum paciente adicionado. Clique em <strong>+ Walk-in</strong> para adicionar.
+            </div>
+          </td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════ MODAL WALK-IN ═══════════════════ -->
+<div id="modal-walkin" class="modal-overlay" style="display:none;"
+     onclick="if(event.target===this) this.style.display='none'">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">+ Walk-in</span>
+      <button class="modal-close" onclick="document.getElementById('modal-walkin').style.display='none'">✕</button>
+    </div>
+
+    <form method="post" action="/adicionar">
+      <input type="hidden" name="data_sessao" value="{{ data }}">
+
+      <!-- Linha 1: identificação -->
+      <div class="form-row">
+        <div class="field">
+          <label for="m_nome">Nome do paciente</label>
+          <input type="text" id="m_nome" name="nome" placeholder="Ex.: Maria Silva"
+            autocomplete="off" required>
+        </div>
+        <div class="field">
+          <label for="m_num_prontuario">Nº do prontuário</label>
+          <input type="text" id="m_num_prontuario" name="num_prontuario"
+            placeholder="Ex.: 2024/003812" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="m_telefone">Telefone</label>
+          <input type="text" id="m_telefone" name="telefone"
+            placeholder="Ex.: (88) 99999-0000" autocomplete="off" inputmode="tel">
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:10px;">
+        <div class="field">
+          <label for="m_nome_mae">Nome da mãe</label>
+          <input type="text" id="m_nome_mae" name="nome_mae" placeholder="Ex.: Ana Silva"
+            autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="m_data_nascimento">Data de nascimento</label>
+          <input type="text" id="m_data_nascimento" name="data_nascimento"
+            placeholder="DD/MM/AAAA" autocomplete="off" inputmode="numeric" maxlength="10">
+        </div>
+      </div>
+
+      <!-- Linha 2: protocolo + tempos -->
+      <div class="form-row" style="margin-top:10px;">
+        <div class="field-largo">
+          <label for="m_protocolo">Protocolo de quimioterapia</label>
+          <select id="m_protocolo" name="protocolo" required>
+            <option value="" disabled selected>— selecione —</option>
+            {% for grupo, slugs in grupos.items() %}
+              <optgroup label="{{ grupo }}">
+                {% for slug in slugs %}
+                  <option value="{{ slug }}">{{ labels[slug] }}</option>
+                {% endfor %}
+              </optgroup>
+            {% endfor %}
+            <optgroup label="— Personalizado">
+              <option value="outro">Outro protocolo...</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="field" id="m_pre-med-field" style="display:none;">
+          <label for="m_pre_override">Pré-QT</label>
+          <select id="m_pre_override" name="pre_override">
+            <option value="Z">Z — sem pré-QT (0 min)</option>
+            <option value="A">A — mínima (15 min)</option>
+            <option value="B">B — padrão (35 min)</option>
+            <option value="C">C — longa com hidratação (90 min)</option>
+          </select>
+        </div>
+        <div class="field" id="m_qt-field" style="display:none;">
+          <label for="m_qt_override_min">Tempo QT (min)</label>
+          <input type="number" id="m_qt_override_min" name="qt_override_min"
+            min="5" max="600" style="width:100%;">
+        </div>
+        <div class="field" id="m_intervalo-field" style="display:none;">
+          <label for="m_intervalo_ciclo_dias">Intervalo entre ciclos (dias)</label>
+          <input type="number" id="m_intervalo_ciclo_dias" name="intervalo_ciclo_dias"
+            min="1" max="365" style="width:100%;">
+        </div>
+        <div class="field" id="m_ciclos-field" style="display:none;">
+          <label for="m_total_ciclos">Nº de ciclos (prescrito)</label>
+          <input type="number" id="m_total_ciclos" name="total_ciclos"
+            min="1" max="100" style="width:100%;" placeholder="Ex.: 4">
+        </div>
+      </div>
+
+      <!-- Campos do protocolo personalizado (visível apenas quando "outro" selecionado) -->
+      <div id="m_protocolo_custom_fields" style="display:none; margin-top:10px;">
+        <div class="form-row">
+          <div class="field-largo">
+            <label for="m_protocolo_custom">Nome do protocolo</label>
+            <input type="text" id="m_protocolo_custom" name="protocolo_custom"
+              placeholder="Ex.: FOLFIRINOX, Carboplatina AUC6..." autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="m_cor_qt_override">Cor / duração estimada</label>
+            <select id="m_cor_qt_override" name="cor_qt_override">
+              <option value="verde">Verde — menos de 1h</option>
+              <option value="azul" selected>Azul — 1h a 2h</option>
+              <option value="amarelo">Amarelo — 2h a 4h</option>
+              <option value="vermelho">Vermelho — mais de 4h</option>
+            </select>
+          </div>
+        </div>
+        <p style="font-size:12px; color:#9ca3af; margin-top:6px;">
+          Preencha também o tempo de QT, pré-QT e intervalo de ciclo nos campos acima.
+        </p>
+      </div>
+
+      <!-- Linha 3: prioridades -->
+      <div class="form-row" style="margin-top:10px; align-items:center;">
+        <div class="field">
+          <label for="m_flexibilidade">Distância / flexibilidade</label>
+          <select id="m_flexibilidade" name="flexibilidade">
+            <option value="alta">Alta — mora perto, pode reagendar</option>
+            <option value="baixa">Baixa — veio de longe, só pode hoje</option>
+          </select>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px; padding-top:20px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; font-size:13px;">
+            <input type="checkbox" id="m_is_convenio" name="is_convenio" value="1"
+              style="width:16px; height:16px;">
+            Convênio (poltrona 26–30)
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; font-size:13px;">
+            <input type="checkbox" id="m_ordem_medica" name="ordem_medica" value="1"
+              style="width:16px; height:16px;">
+            Ordem médica — deve ser hoje
+          </label>
+        </div>
+        <div style="padding-top:20px; margin-left:auto;">
+          <button type="submit" class="btn btn-primary">+ Adicionar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  var PROT_BUCKET    = {{ protocolo_json | safe }};
+  var PROT_QT        = {{ qt_json | safe }};
+  var PROT_INTERVALO = {{ intervalo_json | safe }};
+
+  var sel            = document.getElementById('m_protocolo');
+  var preField       = document.getElementById('m_pre-med-field');
+  var preSel         = document.getElementById('m_pre_override');
+  var qtField        = document.getElementById('m_qt-field');
+  var qtInput        = document.getElementById('m_qt_override_min');
+  var intervaloField = document.getElementById('m_intervalo-field');
+  var intervaloInput = document.getElementById('m_intervalo_ciclo_dias');
+  var ciclosField    = document.getElementById('m_ciclos-field');
+
+  var customFields = document.getElementById('m_protocolo_custom_fields');
+
+  sel.addEventListener('change', function () {
+    var v        = this.value;
+
+    if (v === 'outro') {
+      customFields.style.display = '';
+      preField.style.display = '';
+      preSel.value = 'B';
+      qtField.style.display = '';
+      qtInput.value = '';
+      intervaloField.style.display = '';
+      intervaloInput.value = '';
+      ciclosField.style.display = '';
+      return;
+    }
+
+    customFields.style.display = 'none';
+    var bucket   = PROT_BUCKET[v];
+    var qt       = PROT_QT[v];
+    var intervalo = PROT_INTERVALO[v];
+    if (bucket)   { preSel.value = bucket; preField.style.display = ''; }
+    else          { preField.style.display = 'none'; }
+    if (qt)       { qtInput.value = qt; qtField.style.display = ''; }
+    else          { qtField.style.display = 'none'; }
+    if (intervalo){ intervaloInput.value = intervalo; intervaloField.style.display = ''; }
+    else          { intervaloField.style.display = 'none'; }
+    ciclosField.style.display = '';
+  });
+
+  var nasc = document.getElementById('m_data_nascimento');
+  if (nasc) {
+    nasc.addEventListener('input', function () {
+      var v = this.value.replace(/\D/g, '').slice(0, 8);
+      if (v.length >= 5)      v = v.slice(0,2) + '/' + v.slice(2,4) + '/' + v.slice(4);
+      else if (v.length >= 3) v = v.slice(0,2) + '/' + v.slice(2);
+      this.value = v;
+    });
+  }
+})();
+</script>
+
+<script>
+(function () {
+  var sessoes  = {{ sessoes_json | safe }};
+  var bandaEls = document.querySelectorAll('#bandas-container .card');
+
+  bandaEls.forEach(function (el) {
+    var inicio = parseInt(el.dataset.inicio, 10);
+    var fim    = parseInt(el.dataset.fim,    10);
+    var cap    = parseInt(el.dataset.cap,    10);
+
+    var count = sessoes.filter(function (s) {
+      return s.chegada >= inicio && s.chegada < fim;
+    }).length;
+
+    var pct   = cap > 0 ? Math.min(count / cap, 1) : 0;
+    var color = pct <= 0.70 ? '#10b981' : pct <= 0.90 ? '#f59e0b' : '#ef4444';
+
+    el.querySelector('.banda-count').textContent = count;
+    el.querySelector('.banda-frac').textContent  = count + ' / ' + cap;
+
+    var bar = el.querySelector('.banda-bar');
+    bar.style.width      = (pct * 100).toFixed(1) + '%';
+    bar.style.background = color;
+  });
+})();
+</script>
+
+{% endblock %}

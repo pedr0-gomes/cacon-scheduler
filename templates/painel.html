@@ -1,0 +1,418 @@
+{% extends "base.html" %}
+{% block title %}Painel de Poltronas — CACON{% endblock %}
+
+{% block nav %}
+<nav>
+  <span class="nav-brand">CACON</span>
+  <a href="/login" style="margin-left:auto; font-size:13px; color:#aab4c8;">Acesso Triagem</a>
+</nav>
+{% endblock %}
+
+{% block content %}
+{% set n_livre    = poltronas | selectattr('status', 'eq', 'livre') | list | length %}
+{% set n_ocupadas = poltronas | length - n_livre %}
+
+<div style="margin-bottom:20px;">
+  <h1 style="margin-bottom:2px;">Painel de Poltronas</h1>
+  <p class="subtitulo" style="margin:0;">{{ data }} · Toque na poltrona para registrar a etapa</p>
+</div>
+
+<!-- Vitals bar -->
+<div class="vitals-bar" style="margin-bottom:20px;">
+  <div class="vital-item">
+    <div class="vital-num">{{ poltronas | length }}</div>
+    <div class="vital-label">Total</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num" style="color:#1e40af;">{{ n_ocupadas }}</div>
+    <div class="vital-label">Ocupadas</div>
+  </div>
+  <div class="vital-item">
+    <div class="vital-num" style="color:#15803d;">{{ n_livre }}</div>
+    <div class="vital-label">Livres</div>
+  </div>
+  {% set carga_max_pct = [carga_ctx.tecnico.pct, carga_ctx.enfermeiro.pct, carga_ctx.limpeza.pct] | max %}
+  <div class="vital-item">
+    <div class="vital-num" style="color:{% if carga_max_pct >= 90 %}#dc2626{% elif carga_max_pct >= 70 %}#d97706{% else %}#15803d{% endif %};">{{ carga_max_pct }}%</div>
+    <div class="vital-label">Carga máx.</div>
+  </div>
+</div>
+
+<!-- Carga por papel -->
+<div class="card" style="margin-bottom:20px; padding:20px 24px;">
+  <div style="font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:#6b7280; margin-bottom:16px;">Carga por papel</div>
+  <div class="carga-grid">
+    {% set papeis = [
+      ("tecnico",    "Técnicos",    "#f59e0b"),
+      ("enfermeiro", "Enfermeiros", "#3b82f6"),
+      ("limpeza",    "Limpeza",     "#7c3aed"),
+    ] %}
+    {% for chave, label, cor in papeis %}
+    {% set c = carga_ctx[chave] %}
+    <div class="carga-item">
+      <div class="carga-num" style="color:{% if c.pct >= 90 %}#dc2626{% elif c.pct >= 70 %}#d97706{% else %}{{ cor }}{% endif %};">{{ c.total }}</div>
+      <div class="carga-role">{{ label }} <span style="font-weight:400; color:#9ca3af;">/ {{ c.max }}</span></div>
+      <div class="carga-bar-wrap">
+        <div class="carga-bar-fill" style="width:{{ c.pct }}%; background:{% if c.pct >= 90 %}#ef4444{% elif c.pct >= 70 %}#f59e0b{% else %}{{ cor }}{% endif %};"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% if not poltronas or poltronas|selectattr("sessao")|list|length == 0 %}
+<div class="card">
+  <div class="empty">
+    Nenhuma agenda gerada.<br>
+    <a href="/" class="btn btn-primary" style="margin-top:16px; display:inline-flex;">← Ir para Triagem</a>
+  </div>
+</div>
+{% endif %}
+
+<div class="painel-grid">
+{% for pol in poltronas %}
+<div class="chair-card chair-{{ pol.status }}"
+  data-num="{{ pol.num }}"
+  data-nome="{{ pol.sessao.paciente.nome if pol.sessao else '' }}"
+  data-nome-mae="{{ pol.ag.get('nome_mae', '') or '' }}"
+  data-nascimento="{{ pol.ag.get('data_nascimento', '') or '' }}"
+  data-num-prontuario="{{ pol.num_prontuario }}"
+  data-telefone="{{ pol.telefone }}"
+  data-status="{{ pol.status }}"
+  data-puncao-time="{{ pol.evs.get('punção', '') }}"
+  data-total-min="{{ (pol.sessao.saida_est - pol.sessao.chegada) if pol.sessao else 0 }}"
+  data-protocolo="{{ labels.get(pol.sessao.paciente.protocolo, pol.sessao.paciente.protocolo) if pol.sessao else '' }}"
+  data-intercorrencias="{{ pol.inter_str }}"
+  data-t-pre="{{ pol.sessao.paciente.t_pre if pol.sessao else 0 }}"
+  data-evs='{{ pol.evs_json }}'
+  data-ag-id="{{ pol.ag.get('ag_id', '') }}"
+  data-paciente-id="{{ pol.ag.get('paciente_id', '') }}"
+  data-intervalo-default="{{ pol.intervalo_default }}"
+  data-has-proxima="{{ 'true' if pol.has_proxima else 'false' }}"
+  data-duracao-mediana="{{ pol.duracao_mediana if pol.duracao_mediana else '' }}"
+  data-t-qt="{{ pol.sessao.paciente.t_qt if pol.sessao else '' }}"
+  onclick="openModal(this)"
+>
+  <div class="chair-top">
+    <div class="chair-num">{{ pol.num }}</div>
+    {% if pol.sessao and pol.status != 'livre' %}
+      <div class="chair-nome">{{ pol.sessao.paciente.nome.split()[0] }}</div>
+    {% else %}
+      <div class="chair-nome" style="color:#d1d5db;">—</div>
+    {% endif %}
+    <div class="chair-status">{{ status_label[pol.status] }}</div>
+  </div>
+  <div class="chair-bar-wrap">
+    <div class="chair-bar-fill"
+      data-puncao-time="{{ pol.evs.get('punção', '') if pol.status != 'livre' else '' }}"
+      data-total-min="{{ (pol.sessao.saida_est - pol.sessao.chegada) if pol.sessao and pol.status != 'livre' else 0 }}"></div>
+  </div>
+  <div class="chair-bar-pct"></div>
+  {% set pesos = carga_por_papel.get(pol.status, carga_por_papel["livre"]) %}
+  {% set carga_max = [pesos["tecnico"], pesos["enfermeiro"], pesos["limpeza"]] | max %}
+  {% if carga_max >= 0.8 %}
+    <div style="position:absolute; top:8px; right:8px; width:9px; height:9px; border-radius:50%; background:#ef4444;" title="Carga alta"></div>
+  {% elif carga_max >= 0.2 %}
+    <div style="position:absolute; top:8px; right:8px; width:9px; height:9px; border-radius:50%; background:#f59e0b;" title="Carga média"></div>
+  {% endif %}
+</div>
+{% endfor %}
+</div>
+
+<!-- Modal -->
+<div id="modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title" id="m-pol">Poltrona —</span>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+
+    <div id="m-paciente-info">
+      <div id="m-nome" class="m-nome"></div>
+      <div id="m-mae"   class="m-info"></div>
+      <div id="m-nasc"  class="m-info"></div>
+      <div id="m-npront" class="m-info"></div>
+      <div id="m-tel"    class="m-info"></div>
+      <div id="m-protocolo" class="m-info" style="margin-top:4px;"></div>
+      <div id="m-alerta" class="m-alerta" style="display:none;"></div>
+
+      <div class="m-progress-wrap" id="m-progress-wrap" style="display:none;">
+        <div class="m-progress-bar" id="m-progress-bar" style="width:0%"></div>
+      </div>
+      <div class="m-progress-label" id="m-progress-label"></div>
+
+      <form id="m-form" method="post" style="display:none;">
+        <input type="hidden" name="next" value="/painel">
+        <button type="submit" id="m-btn" class="btn-acao">Registrar</button>
+      </form>
+
+      <div id="m-eventos" class="m-eventos-list" style="margin-top:12px;"></div>
+
+      <form id="m-anotar-form" method="post" style="margin-top:14px;">
+        <input type="hidden" name="next" value="/painel">
+        <div class="m-anotar">
+          <input type="text" id="m-anotar-input" name="texto" placeholder="Anotar intercorrência...">
+          <button type="submit" class="btn btn-ghost btn-sm">Anotar</button>
+        </div>
+      </form>
+
+      <!-- Próxima sessão (aparece após retirada, se não agendada) -->
+      <div id="m-proxima" style="display:none; margin-top:16px; padding-top:16px; border-top:1.5px solid #e5e7eb;">
+        <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Próxima sessão</div>
+        <form id="m-proxima-form" method="post">
+          <input type="hidden" id="m-prox-pac-id" name="paciente_id">
+          <div class="form-row" style="align-items:flex-end; flex-wrap:wrap; gap:10px;">
+            <div>
+              <label>Intervalo</label>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <input type="number" id="m-prox-intervalo" name="intervalo_dias"
+                  min="1" max="365"
+                  style="width:70px; padding:8px 10px; border:1.5px solid #d1d5db; border-radius:8px;">
+                <span style="font-size:13px; color:#6b7280;">dias</span>
+              </div>
+            </div>
+            <div>
+              <label>Data proposta</label>
+              <input type="date" id="m-prox-data" name="data_proxima"
+                style="padding:8px 10px; border:1.5px solid #d1d5db; border-radius:8px;">
+            </div>
+            <button type="submit" class="btn btn-primary">Agendar</button>
+          </div>
+          <div id="m-duracao-hint" style="display:none; font-size:13px; color:#6b7280; margin-top:10px;"></div>
+          <input type="hidden" id="m-prox-qt-override" name="qt_override_min" disabled>
+        </form>
+      </div>
+    </div>
+
+    <div id="m-livre" class="m-livre" style="display:none;">Poltrona livre</div>
+  </div>
+</div>
+
+<script>
+let currentNome = '';
+let currentInter = '';
+const HOJE = "{{ hoje }}";
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function updateAlerta(inter) {
+  const alerta = document.getElementById('m-alerta');
+  if (inter) {
+    const items = inter.split(' · ').filter(x => x.trim());
+    alerta.innerHTML = items.map(i => `<div>${escapeHtml(i)}</div>`).join('');
+    alerta.style.display = '';
+  } else {
+    alerta.style.display = 'none';
+  }
+}
+
+function calcDataProxima(dias) {
+  const d = new Date(HOJE + 'T00:00:00');
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+const STATUS_CFG = {
+  aguardando_puncao:       { label: 'Punção pendente',      btn: 'Registrar Punção',       evento: 'punção',       bg: '#fef9c3', fg: '#713f12' },
+  aguardando_preqt:        { label: 'Pré-QT pendente',      btn: 'Registrar Pré-QT',       evento: 'pré-QT',       bg: '#ffedd5', fg: '#9a3412' },
+  aguardando_qt:           { label: 'QT pendente',          btn: 'Registrar QT',           evento: 'QT',           bg: '#dbeafe', fg: '#1e40af' },
+  aguardando_retirada:     { label: 'Retirada pendente',    btn: 'Registrar Retirada',     evento: 'retirada',     bg: '#ede9fe', fg: '#5b21b6' },
+  aguardando_higienizacao: { label: 'Higienização pendente',btn: 'Registrar Higienização', evento: 'higienização', bg: '#dcfce7', fg: '#15803d' },
+  livre:                   { label: 'Livre',                btn: null, evento: null, bg: '#ffffff', fg: '#9ca3af' },
+};
+
+const EV_LABELS = { 'punção': 'Punção', 'pré-QT': 'Pré-QT', 'QT': 'QT', 'retirada': 'Retirada', 'higienização': 'Higienização' };
+const EV_ORDER  = ['punção', 'pré-QT', 'QT', 'retirada', 'higienização'];
+
+function openModal(el) {
+  const num    = el.dataset.num;
+  const nome   = el.dataset.nome;
+  const status = el.dataset.status;
+  const agId   = el.dataset.agId;
+  const cfg    = STATUS_CFG[status] || {};
+  currentNome  = nome;
+
+  document.getElementById('m-pol').textContent = 'Poltrona ' + num;
+
+  if (status === 'livre') {
+    document.getElementById('m-paciente-info').style.display = 'none';
+    document.getElementById('m-livre').style.display = '';
+  } else {
+    document.getElementById('m-paciente-info').style.display = '';
+    document.getElementById('m-livre').style.display = 'none';
+
+    document.getElementById('m-nome').textContent = nome;
+    const mae         = el.dataset.nomeMae;
+    const nasc        = el.dataset.nascimento;
+    const numPront    = el.dataset.numProntuario;
+    const telefone    = el.dataset.telefone;
+    document.getElementById('m-mae').textContent    = mae      ? 'Mãe: ' + mae          : '';
+    document.getElementById('m-nasc').textContent   = nasc     ? 'Nasc.: ' + nasc        : '';
+    document.getElementById('m-npront').textContent = numPront ? 'Pront.: ' + numPront   : '';
+    document.getElementById('m-tel').textContent    = telefone ? 'Tel.: ' + telefone     : '';
+    document.getElementById('m-protocolo').textContent = el.dataset.protocolo;
+
+    currentInter = el.dataset.intercorrencias || '';
+    updateAlerta(currentInter);
+
+    // Barra de progresso
+    const puncaoTime = el.dataset.puncaoTime;
+    const totalMin   = parseInt(el.dataset.totalMin) || 0;
+    const progressWrap  = document.getElementById('m-progress-wrap');
+    const progressBar   = document.getElementById('m-progress-bar');
+    const progressLabel = document.getElementById('m-progress-label');
+    if (puncaoTime && totalMin > 0) {
+      const [h, m] = puncaoTime.split(':').map(Number);
+      const puncaoMin = h * 60 + m;
+      const now = new Date();
+      const nowMin = now.getHours() * 60 + now.getMinutes();
+      const elapsed = Math.max(0, nowMin - puncaoMin);
+      const pct = Math.min(100, Math.round(elapsed / totalMin * 100));
+      const eH = Math.floor(elapsed / 60), eM = elapsed % 60;
+      const tH = Math.floor(totalMin / 60), tM = totalMin % 60;
+      progressBar.style.width = pct + '%';
+      progressLabel.textContent = `${eH}h${String(eM).padStart(2,'0')}min / ${tH}h${String(tM).padStart(2,'0')}min (${pct}%)`;
+      progressWrap.style.display = '';
+      progressLabel.style.display = '';
+    } else {
+      progressWrap.style.display = 'none';
+      progressLabel.textContent = '';
+    }
+
+    // Form de intercorrência
+    document.getElementById('m-anotar-form').action = '/anotar/' + agId;
+
+    // Botão de ação principal
+    const form = document.getElementById('m-form');
+    const btn  = document.getElementById('m-btn');
+    if (cfg.btn) {
+      form.action = '/registrar/' + agId + '/' + encodeURIComponent(cfg.evento);
+      btn.textContent = cfg.btn;
+      btn.style.background = cfg.bg;
+      btn.style.color = cfg.fg;
+      form.style.display = '';
+    } else {
+      form.style.display = 'none';
+    }
+
+    // Resumo de eventos
+    const evs  = JSON.parse(el.dataset.evs || '{}');
+    const tPre = parseInt(el.dataset.tPre) || 0;
+    let html = '';
+    EV_ORDER.forEach(ev => {
+      if (ev === 'pré-QT' && tPre === 0) return;
+      const time = evs[ev];
+      if (time) {
+        html += `<span class="ev-feito" style="display:inline-flex;align-items:center;gap:6px;">
+      ${EV_LABELS[ev]} ✓ ${escapeHtml(time)}
+      <form method="post" action="/desfazer/${agId}/${encodeURIComponent(ev)}" style="margin:0;display:inline;">
+        <input type="hidden" name="next" value="/painel">
+        <button type="submit" style="font-size:10px;background:none;border:none;color:#9ca3af;cursor:pointer;padding:0;line-height:1;" title="Desfazer">↩</button>
+      </form>
+    </span>`;
+      } else {
+        html += `<span class="ev-pendente">${EV_LABELS[ev]}</span>`;
+      }
+    });
+    const evDiv = document.getElementById('m-eventos');
+    evDiv.innerHTML = html;
+    evDiv.style.display = '';
+
+    // Próxima sessão
+    const mProxima   = document.getElementById('m-proxima');
+    const hasProxima = el.dataset.hasProxima === 'true';
+    if (status === 'aguardando_higienizacao' && !hasProxima) {
+      mProxima.style.display = '';
+      const intervalo = parseInt(el.dataset.intervaloDefault) || 21;
+      document.getElementById('m-prox-intervalo').value = intervalo;
+      document.getElementById('m-prox-data').value = calcDataProxima(intervalo);
+      document.getElementById('m-prox-data').min = HOJE;
+      document.getElementById('m-prox-pac-id').value = el.dataset.pacienteId;
+      document.getElementById('m-proxima-form').action = '/proxima/' + agId;
+
+      // Duração mediana — hint de qt_override_min
+      const hintDiv      = document.getElementById('m-duracao-hint');
+      const qtOverride   = document.getElementById('m-prox-qt-override');
+      const mediana      = parseInt(el.dataset.duracaoMediana) || 0;
+      const tQt          = parseInt(el.dataset.tQt) || 0;
+      if (mediana && tQt && Math.abs(mediana - tQt) >= 5) {
+        hintDiv.innerHTML = `Duração real média deste paciente: <strong>${mediana} min</strong> (protocolo padrão: ${tQt} min) — próxima sessão usará este valor automaticamente.`;
+        hintDiv.style.display = '';
+        qtOverride.value = mediana;
+        qtOverride.disabled = false;
+      } else {
+        hintDiv.style.display = 'none';
+        qtOverride.disabled = true;
+      }
+    } else {
+      mProxima.style.display = 'none';
+      document.getElementById('m-duracao-hint').style.display = 'none';
+      document.getElementById('m-prox-qt-override').disabled = true;
+    }
+  }
+
+  document.getElementById('modal').style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('modal').style.display = 'none';
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// Barras de progresso nos cards
+function renderProgressBars() {
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  document.querySelectorAll('.chair-bar-fill').forEach(fill => {
+    const puncaoTime = fill.dataset.puncaoTime;
+    const totalMin   = parseInt(fill.dataset.totalMin) || 0;
+    const pctLabel   = fill.parentElement.nextElementSibling;
+    if (puncaoTime && totalMin > 0) {
+      const [h, m] = puncaoTime.split(':').map(Number);
+      const puncaoMin = h * 60 + m;
+      const elapsed = Math.max(0, nowMin - puncaoMin);
+      const pct = Math.min(100, Math.round(elapsed / totalMin * 100));
+      fill.style.width = pct + '%';
+      if (pctLabel) pctLabel.textContent = pct + '%';
+    } else {
+      fill.style.width = '0%';
+      if (pctLabel) pctLabel.textContent = '';
+    }
+  });
+}
+renderProgressBars();
+
+// Atualiza data proposta quando intervalo muda
+document.getElementById('m-prox-intervalo').addEventListener('input', function() {
+  const v = parseInt(this.value) || 21;
+  document.getElementById('m-prox-data').value = calcDataProxima(v);
+});
+
+// Anotação via fetch (sem fechar modal)
+document.getElementById('m-anotar-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const input = document.getElementById('m-anotar-input');
+  const texto = input.value.trim();
+  if (!texto) return;
+  const btn = this.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    await fetch(this.action, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'texto=' + encodeURIComponent(texto) + '&next=/painel'
+    });
+    currentInter = currentInter ? currentInter + ' · ' + texto : texto;
+    updateAlerta(currentInter);
+    input.value = '';
+    const card = document.querySelector(`.chair-card[data-nome="${currentNome}"]`);
+    if (card) card.dataset.intercorrencias = currentInter;
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}Registros — CACON{% endblock %}
+
+{% block content %}
+<h1>Registros do dia</h1>
+<p class="subtitulo">Visão detalhada de todos os pacientes e etapas — {{ data }}</p>
+
+{% if not sessoes %}
+<div class="card">
+  <div class="empty">
+    Nenhuma agenda gerada ainda.<br>
+    <a href="/" class="btn btn-primary" style="margin-top:16px; display:inline-flex;">← Triagem</a>
+  </div>
+</div>
+
+{% else %}
+
+{% set concluidos = [] %}
+{% for s in sessoes %}
+  {% set ag = ag_by_nome.get(s.paciente.nome, {}) %}
+  {% if ag.get('eventos', {}).get('retirada') %}
+    {% set _ = concluidos.append(1) %}
+  {% endif %}
+{% endfor %}
+
+<div class="resumo-bar">
+  <div class="resumo-item">
+    <div class="resumo-num">{{ sessoes|length }}</div>
+    <div class="resumo-desc">total</div>
+  </div>
+  <div class="resumo-item">
+    <div class="resumo-num" style="color:#10b981;">{{ concluidos|length }}</div>
+    <div class="resumo-desc">concluídos</div>
+  </div>
+  <div class="resumo-item">
+    <div class="resumo-num" style="color:#f59e0b;">{{ sessoes|length - concluidos|length }}</div>
+    <div class="resumo-desc">pendentes</div>
+  </div>
+</div>
+
+{% for s in sessoes %}
+{% set nome = s.paciente.nome %}
+{% set ag   = ag_by_nome.get(nome, {}) %}
+{% set reg  = ag.get('eventos', {}) %}
+{% set done = reg.get('retirada') %}
+{% set cor  = s.paciente.cor_qt %}
+{% set ag_id = ag.get('ag_id', '') %}
+
+<div class="paciente-card {% if done %}concluido{% endif %}">
+  <div class="paciente-header">
+    <div>
+      <div class="paciente-nome">{{ nome }}</div>
+      <div class="paciente-info">
+        {{ labels.get(s.paciente.protocolo, s.paciente.protocolo) }} &nbsp;·&nbsp;
+        <span class="badge badge-{{ cor }}">{{ cor_label[cor] }}</span> &nbsp;·&nbsp;
+        Poltrona <strong>{{ s.poltrona }}</strong> &nbsp;·&nbsp;
+        Chegada prevista <strong>{{ fmt(s.chegada) }}</strong>
+      </div>
+    </div>
+  </div>
+
+  <div class="eventos-grid" style="grid-template-columns: repeat(5, 1fr);">
+
+    <!-- Punção -->
+    <div class="evento-bloco">
+      <div class="evento-label">🔴 Punção</div>
+      {% if reg.get('punção') %}
+        <button class="btn-evento btn-feito" disabled>✓ {{ reg['punção'] }}</button>
+        <form method="post" action="/desfazer/{{ ag_id }}/punção">
+          <input type="hidden" name="next" value="/registro">
+          <button type="submit" style="font-size:11px;background:none;border:none;color:#9ca3af;cursor:pointer;margin-top:4px;">desfazer</button>
+        </form>
+      {% else %}
+        <form method="post" action="/registrar/{{ ag_id }}/punção">
+          <input type="hidden" name="next" value="/registro">
+          <button type="submit" class="btn-evento btn-puncao" {% if done %}disabled{% endif %}>Registrar</button>
+        </form>
+      {% endif %}
+    </div>
+
+    <!-- Pré-QT -->
+    <div class="evento-bloco">
+      <div class="evento-label">🟡 Pré-QT</div>
+      {% if s.paciente.t_pre == 0 %}
+        <button class="btn-evento btn-feito" disabled style="opacity:.4;">Sem pré-QT</button>
+      {% elif reg.get('pré-QT') %}
+        <button class="btn-evento btn-feito" disabled>✓ {{ reg['pré-QT'] }}</button>
+        <form method="post" action="/desfazer/{{ ag_id }}/pré-QT">
+          <input type="hidden" name="next" value="/registro">
+          <button type="submit" style="font-size:11px;background:none;border:none;color:#9ca3af;cursor:pointer;margin-top:4px;">desfazer</button>
+        </form>
+      {% else %}
+        <form method="post" action="/registrar/{{ ag_id }}/pré-QT">
+          <input type="hidden" name="next" value="/registro">
+          <button type="submit" class="btn-evento btn-preqt"
+            {% if not reg.get('punção') or done %}disabled{% endif %}>Registrar</button>
+        </form>
+      {% endif %}
+    </div>
+
+    <!-- QT -->
+    <div class="evento-bloco">
+      <div class="evento-label">🔵 QT</div>
+      {% if reg.get('QT') %}
+        <button class="btn-evento btn-feito" disabled>✓ {{ reg['QT'] }}</button>
+        <form method="post" action="/desfazer/{{ ag_id }}/QT">
+          <input type="hidden" name="next" value="/registro">
+          <button type="submit" style="font-size:11px;background:none;border:none;color:#9ca3af;cursor:pointer;margin-top:4px;">desfazer</button>
+        </form>
+      {% else %}
+        <form method="post" action="/registrar/{{ ag_id }}/QT">
+          <input type="hidden" name="next" value="/registro">
+          <button type="submit" class="btn-evento btn-qt"
+            {% if (s.paciente.t_pre > 0 and not reg.get('pré-QT')) or (s.paciente.t_pre == 0 and not reg.get('punção')) or done %}disabled{% endif %}>Registrar</button>
+        </form>
+      {% endif %}
+    </div>
+
+    <!-- Retirada -->
+    <div class="evento-bloco">
+      <div class="evento-label">🔵 Retirada</div>
+      {% if reg.get('retirada') %}
+        <button class="btn-evento btn-feito" disabled>✓ {{ reg['retirada'] }}</button>
+        <form method="post" action="/desfazer/{{ ag_id }}/retirada">
+          <input type="hidden" name="next" value="/registro">
+          <button type="submit" style="font-size:11px;background:none;border:none;color:#9ca3af;cursor:pointer;margin-top:4px;">desfazer</button>
+        </form>
+      {% else %}
+        <form method="post" action="/registrar/{{ ag_id }}/retirada">
+          <input type="hidden" name="next" value="/registro">
+          <button type="submit" class="btn-evento btn-retirada"
+            {% if not reg.get('QT') %}disabled{% endif %}>Registrar</button>
+        </form>
+      {% endif %}
+    </div>
+
+    <!-- Higienização -->
+    <div class="evento-bloco">
+      <div class="evento-label">🟣 Higienização</div>
+      {% if reg.get('higienização') %}
+        <button class="btn-evento btn-feito" disabled>✓ {{ reg['higienização'] }}</button>
+        <form method="post" action="/desfazer/{{ ag_id }}/higienização">
+          <input type="hidden" name="next" value="/registro">
+          <button type="submit" style="font-size:11px;background:none;border:none;color:#9ca3af;cursor:pointer;margin-top:4px;">desfazer</button>
+        </form>
+      {% else %}
+        <form method="post" action="/registrar/{{ ag_id }}/higienização">
+          <input type="hidden" name="next" value="/registro">
+          <button type="submit" class="btn-evento btn-higienizacao"
+            {% if not reg.get('retirada') %}disabled{% endif %}>Registrar</button>
+        </form>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- Intercorrências -->
+  {% set inter_list = ag.get('intercorrencias', []) %}
+  {% if inter_list %}
+  <div style="margin-top:12px; font-size:13px; background:#fef9c3; border:1.5px solid #f59e0b; border-radius:8px; padding:8px 12px; color:#92400e; font-weight:600;">
+    {% for i in inter_list %}<div>{{ i }}</div>{% endfor %}
+  </div>
+  {% endif %}
+  <form method="post" action="/anotar/{{ ag_id }}" style="margin-top:10px;">
+    <input type="hidden" name="next" value="/registro">
+    <div class="m-anotar">
+      <input type="text" name="texto" placeholder="Anotar intercorrência...">
+      <button type="submit" class="btn btn-ghost btn-sm">Anotar</button>
+    </div>
+  </form>
+</div>
+{% endfor %}
+
+{% endif %}
+{% endblock %}
