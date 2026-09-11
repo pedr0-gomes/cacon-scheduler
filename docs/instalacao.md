@@ -35,7 +35,7 @@ uv --version
 ## 2. Clonar o repositório
 
 ```bash
-git clone https://github.com/pedro-gomes-sampaio/cacon-scheduler.git
+git clone https://github.com/pedr0-gomes/cacon-scheduler.git
 cd cacon-scheduler
 ```
 

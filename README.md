@@ -41,7 +41,7 @@ Veja [`docs/instalacao.md`](docs/instalacao.md) para o guia completo.
 Resumo:
 
 ```bash
-git clone https://github.com/pedro-gomes-sampaio/cacon-scheduler.git
+git clone https://github.com/pedr0-gomes/cacon-scheduler.git
 cd cacon-scheduler
 cp config.example.py config.py   # edite a senha e o secret
 uv sync
