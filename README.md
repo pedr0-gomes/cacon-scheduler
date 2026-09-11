@@ -118,6 +118,6 @@ Este é um MVP operacional, não um sistema otimizado. Algumas decisões foram t
 
 ## Contexto
 
-Desenvolvido por Pedro Gomes Sampaio (estudante de Enfermagem) em setembro de 2026. O problema foi validado em simulação presencial com a equipe do setor antes da entrega.
+Desenvolvido por Pedro Gomes Sampaio (estudante de Ciência da Computação) em setembro de 2026. O problema foi validado em simulação presencial com a equipe do setor antes da entrega.
 
 Contribuições são bem-vindas.
