@@ -7,7 +7,7 @@ Uso manual:
 Cron diário às 02h:
     0 2 * * * cd /caminho/cacon-scheduler && uv run python backup.py >> /var/log/cacon-backup.log 2>&1
 """
-import shutil
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -23,7 +23,14 @@ def fazer_backup() -> Path:
     BACKUP_DIR.mkdir(exist_ok=True)
     ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     dest = BACKUP_DIR / f"cacon_{ts}.db"
-    shutil.copy2(DB_PATH, dest)
+    # API de backup do SQLite, não cópia de arquivo: com o banco em WAL os dados
+    # recentes ficam em cacon.db-wal e uma cópia do .db com o servidor rodando os perde
+    src, dst = sqlite3.connect(DB_PATH), sqlite3.connect(dest)
+    try:
+        src.backup(dst)
+    finally:
+        dst.close()
+        src.close()
 
     backups = sorted(BACKUP_DIR.glob("cacon_*.db"))
     for antigo in backups[:-KEEP]:
