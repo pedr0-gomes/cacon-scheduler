@@ -509,6 +509,18 @@ class Sessao:
     saturado: bool = False  # True se alocado no fallback (capacidade do dia estourada)
 
 
+@dataclass
+class EmAtendimento:
+    """Paciente que já teve a punção registrada: o scheduler não o move, só
+    trabalha em volta. Horários em minutos desde 0h; None = ainda não aconteceu."""
+    paciente: object
+    t_puncao: int
+    poltrona: Optional[int] = None      # 1-indexada, gravada na punção (None = dado antigo)
+    inicio_qt: Optional[int] = None
+    retirada: Optional[int] = None
+    higienizacao: Optional[int] = None
+
+
 # ===========================================================================
 # 6. ALGORITMO — alocação por recursos (Heijunka + DBR sobre pools reais)
 # ===========================================================================
@@ -534,8 +546,15 @@ def gerar_escala(
     escala: Optional[List[Profissional]] = None,
     dia_semana: Optional[int] = None,
     n_poltronas: Optional[int] = None,
+    agora: Optional[int] = None,
+    em_atendimento: Optional[List[EmAtendimento]] = None,
 ) -> List[Sessao]:
     """
+    agora (minutos desde 0h): ninguém que ainda não começou é sugerido para antes
+    de agora, e a distribuição (takt) usa só o resto do dia. None = dia inteiro.
+    em_atendimento: pacientes que já tiveram a punção — ficam na poltrona gravada,
+    consomem os recursos que ainda vão usar e entram na lista devolvida.
+
     Para cada paciente (longos primeiro), acha o horário de chegada mais cedo
     (a partir do ideal Heijunka) em que há capacidade em TODOS os recursos:
       1. técnico livre para a punção            [t, t+T_PUNCAO)
@@ -551,7 +570,8 @@ def gerar_escala(
     if n_poltronas is None:
         n_poltronas = N_POLTRONAS
     n = len(pacientes)
-    if n == 0:
+    fixos = sorted(em_atendimento or [], key=lambda f: f.t_puncao)
+    if n == 0 and not fixos:
         return []
 
     N = DIA_FIM - DIA_INI
@@ -578,7 +598,8 @@ def gerar_escala(
 
     def _ocupa(arr, ini, dur):
         for t in range(ini, ini + dur):
-            arr[t - DIA_INI] += 1
+            if 0 <= t - DIA_INI < N:
+                arr[t - DIA_INI] += 1
 
     def _proximo_enf(ini_min: int, dur: int) -> Optional[int]:
         for t in range(max(ini_min, HORA_MIN_QT), DIA_FIM - dur):
@@ -586,12 +607,48 @@ def gerar_escala(
                 return t
         return None
 
-    takt = (ULTIMA_CHEGADA - DIA_INI) / n
+    sessoes: List[Sessao] = []
+
+    # --- Quem já começou: fica onde está e consome o que ainda vai usar ---
+    ordem_fixos = [f for f in fixos if f.poltrona] + [f for f in fixos if not f.poltrona]
+    for f in sorted(ordem_fixos, key=lambda f: (not f.poltrona, f.t_puncao)):
+        p, t = f.paciente, max(f.t_puncao, DIA_INI)
+        if f.poltrona and 1 <= f.poltrona <= n_poltronas:
+            idx = f.poltrona - 1
+        else:   # dado antigo, sem poltrona gravada: escolhe uma livre
+            idx = _primeira_poltrona(disponivel_pol, t, getattr(p, "is_convenio", False))
+            if idx is None:
+                idx = min(range(n_poltronas), key=lambda i: disponivel_pol[i])
+        _ocupa(usado_tec, t, T_PUNCAO)
+        _ocupa(usado_tec, t + T_2A_OFFSET, T_2A_DUR)
+        fim_montagem = max(t + T_PUNCAO, montagem_livre) + T_MONTAGEM
+        montagem_livre = fim_montagem
+        if f.inicio_qt is not None:
+            inicio_qt = f.inicio_qt
+        else:
+            inicio_qt = max(t + p.t_pre + GAP_PRE_QT, fim_montagem, HORA_MIN_QT)
+            if agora is not None:
+                inicio_qt = max(inicio_qt, agora)       # a QT ainda não começou
+            _ocupa(usado_enf, inicio_qt, T_ENF_INICIO_QT)
+        saida = (f.retirada + GAP_SAIDA) if f.retirada is not None else inicio_qt + p.t_qt + GAP_SAIDA
+        if f.higienizacao is not None:
+            livre_em = f.higienizacao
+        else:
+            if f.retirada is None and agora is not None:
+                saida = max(saida, agora)               # ainda na poltrona
+            livre_em = saida + T_HIGIENIZACAO
+        disponivel_pol[idx] = max(disponivel_pol[idx], livre_em)
+        sessoes.append(Sessao(
+            paciente=p, chegada=t, poltrona=idx + 1, inicio_pre=t, inicio_qt=inicio_qt,
+            saida_est=saida, fim_montagem=fim_montagem, inicio_2a=t + T_2A_OFFSET,
+        ))
+
+    inicio_dia = DIA_INI if agora is None else max(DIA_INI, min(agora, ULTIMA_CHEGADA))
+    takt = (ULTIMA_CHEGADA - inicio_dia) / n if n else 0
     ordenados = sorted(pacientes, key=_chave_ordenacao)
 
-    sessoes: List[Sessao] = []
     for seq, p in enumerate(ordenados):
-        chegada_ideal = DIA_INI + round(seq * takt)
+        chegada_ideal = inicio_dia + round(seq * takt)
         is_conv = getattr(p, "is_convenio", False)
 
         alocado = None

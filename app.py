@@ -32,7 +32,7 @@ from database import (
     cadastrar_paciente, atualizar_paciente, remover_paciente,
     get_escala_semana, salvar_profissional, remover_profissional,
     copiar_escala, restaurar_escala_padrao,
-    get_parametros, salvar_parametros,
+    get_parametros, salvar_parametros, fixar_poltrona,
 )
 import scheduler
 
@@ -215,13 +215,86 @@ def _make_paciente(ag):
     )
 
 
-def _build_dia(data_str: str):
+def _min(hhmm) -> Optional[int]:
+    """'07:15' → 435; None se vazio ou inválido."""
+    try:
+        h_, m = str(hhmm).split(":")[:2]
+        return int(h_) * 60 + int(m)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _eventos_min(ag: dict) -> dict:
+    """Eventos do atendimento em minutos, com chaves sem caixa: 'punção', 'pré-qt', 'qt'…"""
+    return {k.lower(): _min(v) for k, v in (ag.get("eventos") or {}).items()}
+
+
+def _build_dia(data_str: str, ao_vivo: bool = False):
+    """Escala do dia. ao_vivo (só vale para hoje): quem já foi puncionado fica na
+    poltrona gravada e quem ainda não começou nunca é sugerido para antes de agora."""
     ag_list = get_dia(data_str)
     if not ag_list:
         return ag_list, []
-    pacs = [_make_paciente(ag) for ag in ag_list]
     dia_semana = date.fromisoformat(data_str).weekday()
-    return ag_list, gerar_escala(pacs, dia_semana=dia_semana)
+    if not (ao_vivo and data_str == str(date.today())):
+        return ag_list, gerar_escala([_make_paciente(ag) for ag in ag_list], dia_semana=dia_semana)
+
+    agora = datetime.now().hour * 60 + datetime.now().minute
+    iniciados, pendentes = [], []
+    for ag in ag_list:
+        ev = _eventos_min(ag)
+        if ev.get("punção") is not None:
+            iniciados.append(scheduler.EmAtendimento(
+                paciente=_make_paciente(ag), t_puncao=ev["punção"], poltrona=ag.get("poltrona"),
+                inicio_qt=ev.get("qt"), retirada=ev.get("retirada"), higienizacao=ev.get("higienização"),
+            ))
+        else:
+            pendentes.append(_make_paciente(ag))
+    return ag_list, gerar_escala(pendentes, dia_semana=dia_semana, agora=agora, em_atendimento=iniciados)
+
+
+def _montar_poltronas(ag_list: list, sessoes: list) -> list:
+    """Uma entrada por poltrona, com o ocupante atual.
+
+    A mesma poltrona atende várias sessões no dia; o ocupante é a primeira sessão
+    (por horário) ainda não concluída — quem está sentado, ou o próximo a chegar.
+    Poltrona sem sessão pendente aparece livre."""
+    ag_by_nome = {ag["nome"]: ag for ag in ag_list}
+    por_poltrona: dict = {}
+    for s in sessoes:                          # sessoes já vêm ordenadas por chegada
+        ag = ag_by_nome.get(s.paciente.nome, {})
+        concluida = _get_status(ag.get("eventos", {}), s.paciente.t_pre) == "livre"
+        if not concluida:
+            por_poltrona.setdefault(s.poltrona, (s, ag))
+
+    poltronas = []
+    for num in range(1, scheduler.N_POLTRONAS + 1):
+        base = {"num": num, "segmento": scheduler.segmento(num)}
+        if num in por_poltrona:
+            sessao, ag = por_poltrona[num]
+            evs = ag.get("eventos", {})
+            poltronas.append({
+                **base,
+                "num_prontuario":    ag.get("num_prontuario") or "",
+                "telefone":          ag.get("telefone") or "",
+                "sessao":            sessao,
+                "ag":                ag,
+                "evs":               evs,
+                "status":            _get_status(evs, sessao.paciente.t_pre),
+                "evs_json":          json.dumps(evs),
+                "inter_str":         " · ".join(ag.get("intercorrencias", [])),
+                "intervalo_default": ag.get("intervalo_ciclo_dias") or INTERVALO_CICLO.get(ag.get("protocolo", ""), 21),
+                "has_proxima":       ag.get("has_proxima", False),
+                "duracao_mediana":   duracao_mediana_qt(ag["paciente_id"]),
+            })
+        else:
+            poltronas.append({
+                **base,
+                "num_prontuario": "", "telefone": "", "sessao": None, "ag": {}, "evs": {},
+                "status": "livre", "evs_json": "{}", "inter_str": "",
+                "intervalo_default": 21, "has_proxima": False,
+            })
+    return poltronas
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +331,7 @@ def _faixa_convenio_txt() -> str:
 async def agenda_get(request: Request):
     data = str(date.today())
     hoje = data
-    ag_list, sessoes = _build_dia(data)
+    ag_list, sessoes = _build_dia(data, ao_vivo=True)
     bandas  = capacidade_por_janela(curva_do_dia(date.today().weekday()))
     cap_dia = capacidade_do_dia(dia_semana=date.today().weekday())
     return templates.TemplateResponse(request, "agenda.html", {
@@ -365,49 +438,8 @@ async def anotar(ag_id: int, texto: str = Form(...), next: str = Form("/painel")
 @app.get("/painel", response_class=HTMLResponse)
 async def painel_get(request: Request):
     hoje = str(date.today())
-    ag_list, sessoes = _build_dia(hoje)
-
-    ag_by_nome = {ag["nome"]: ag for ag in ag_list}
-    pol_sessao = {s.poltrona: s for s in sessoes}
-
-    poltronas = []
-    for num in range(1, scheduler.N_POLTRONAS + 1):
-        sessao = pol_sessao.get(num)
-        if sessao:
-            ag = ag_by_nome.get(sessao.paciente.nome, {})
-            evs = ag.get("eventos", {})
-            status = _get_status(evs, sessao.paciente.t_pre)
-            intervalo_default = ag.get("intervalo_ciclo_dias") or INTERVALO_CICLO.get(ag.get("protocolo", ""), 21)
-            poltronas.append({
-                "num_prontuario":    ag.get("num_prontuario") or "",
-                "telefone":          ag.get("telefone") or "",
-                "num":               num,
-                "sessao":            sessao,
-                "ag":                ag,
-                "evs":               evs,
-                "status":            status,
-                "segmento":          scheduler.segmento(num),
-                "evs_json":          json.dumps(evs),
-                "inter_str":         " · ".join(ag.get("intercorrencias", [])),
-                "intervalo_default": intervalo_default,
-                "has_proxima":       ag.get("has_proxima", False),
-                "duracao_mediana":   duracao_mediana_qt(ag["paciente_id"]),
-            })
-        else:
-            poltronas.append({
-                "num_prontuario":    "",
-                "telefone":          "",
-                "num":               num,
-                "sessao":            None,
-                "ag":                {},
-                "evs":               {},
-                "status":            "livre",
-                "segmento":          scheduler.segmento(num),
-                "evs_json":          "{}",
-                "inter_str":         "",
-                "intervalo_default": 21,
-                "has_proxima":       False,
-            })
+    ag_list, sessoes = _build_dia(hoje, ao_vivo=True)
+    poltronas = _montar_poltronas(ag_list, sessoes)
 
     # Carga por papel (técnico / enfermeiro / limpeza)
     cargas = {"tecnico": 0.0, "enfermeiro": 0.0, "limpeza": 0.0}
@@ -441,6 +473,13 @@ async def painel_get(request: Request):
 
 @app.post("/registrar/{ag_id}/{evento}")
 async def registrar(request: Request, ag_id: int, evento: str, next: str = Form("/painel")):
+    if evento.lower() == "punção":
+        # Grava a poltrona que o painel mostrava: a partir daqui o paciente não muda de lugar
+        ag_list, sessoes = _build_dia(str(date.today()), ao_vivo=True)
+        for p in _montar_poltronas(ag_list, sessoes):
+            if p["ag"].get("ag_id") == ag_id:
+                fixar_poltrona(ag_id, p["num"])
+                break
     registrar_evento(ag_id, evento, datetime.now().strftime("%H:%M"))
     registrar_log(f"evento:{evento}", _usuario(request), agendamento_id=ag_id)
     return RedirectResponse(next, status_code=303)
@@ -449,6 +488,8 @@ async def registrar(request: Request, ag_id: int, evento: str, next: str = Form(
 @app.post("/desfazer/{ag_id}/{evento}")
 async def desfazer(request: Request, ag_id: int, evento: str, next: str = Form("/registro")):
     desfazer_evento(ag_id, evento)
+    if evento.lower() == "punção":
+        fixar_poltrona(ag_id, None)
     registrar_log(f"desfazer:{evento}", _usuario(request), agendamento_id=ag_id)
     return RedirectResponse(next, status_code=303)
 
@@ -716,7 +757,7 @@ async def auditoria_get(request: Request):
 async def registro_get(request: Request, data: str = Query(default=None)):
     if not data:
         data = str(date.today())
-    ag_list, sessoes = _build_dia(data)
+    ag_list, sessoes = _build_dia(data, ao_vivo=True)
     ag_by_nome = {ag["nome"]: ag for ag in ag_list}
     return templates.TemplateResponse(request, "registro.html", {
         "sessoes":    sessoes,

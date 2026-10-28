@@ -105,6 +105,8 @@ def init_db():
             "ALTER TABLE pacientes ADD COLUMN cor_qt_override TEXT",
             # Sessões feitas antes de o paciente entrar no sistema (carga inicial)
             "ALTER TABLE pacientes ADD COLUMN ciclos_previos INTEGER NOT NULL DEFAULT 0",
+            # Poltrona em que o paciente foi puncionado — fixa a partir daí
+            "ALTER TABLE agendamentos ADD COLUMN poltrona INTEGER",
         ]
         for sql in _migracoes:
             try:
@@ -139,7 +141,7 @@ def get_db():
 def get_dia(data: str) -> list:
     with get_db() as db:
         rows = db.execute("""
-            SELECT a.id AS ag_id, a.status, a.confirmado, a.paciente_id, a.ordem_medica,
+            SELECT a.id AS ag_id, a.status, a.confirmado, a.paciente_id, a.ordem_medica, a.poltrona,
                    p.nome, p.nome_mae, p.data_nascimento,
                    p.protocolo, p.pre_override, p.qt_override_min,
                    p.intervalo_ciclo_dias, p.total_ciclos,
@@ -173,6 +175,7 @@ def get_dia(data: str) -> list:
                 "confirmado":           r["confirmado"],
                 "paciente_id":          r["paciente_id"],
                 "ordem_medica":         r["ordem_medica"],
+                "poltrona":             r["poltrona"],
                 "nome":                 r["nome"],
                 "nome_mae":             r["nome_mae"],
                 "data_nascimento":      r["data_nascimento"],
@@ -265,6 +268,12 @@ def registrar_evento(ag_id: int, tipo: str, hora: str):
                 "INSERT INTO eventos (agendamento_id, tipo, registrado_em) VALUES (?,?,?)",
                 (ag_id, tipo, hora)
             )
+
+
+def fixar_poltrona(ag_id: int, poltrona: int | None):
+    """Grava (ou limpa) a poltrona em que o paciente foi puncionado."""
+    with get_db() as db:
+        db.execute("UPDATE agendamentos SET poltrona=? WHERE id=?", (poltrona, ag_id))
 
 
 def desfazer_evento(ag_id: int, tipo: str):
