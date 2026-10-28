@@ -18,6 +18,7 @@ Análise de campo mostrou 63% de utilização de poltrona — 37% do tempo, a po
 
 - **Scheduler** que nivela chegadas com base na escala real de profissionais (técnico de punção, enfermeiro, limpeza) e na duração de cada protocolo
 - **Triagem:** cadastro de walk-ins, escala do dia com vagas semafóricas, confirmação de presença D-1
+- **Configuração:** carga inicial de pacientes, escala da equipe e parâmetros editáveis pela tela
 - **Painel de poltronas:** rastreio em tempo real de cada etapa (punção → pré-QT → QT → retirada → higienização), log de intercorrências
 - **Horizonte:** lista de retornos esperados com agendamento direto pela interface
 - **Lista de agendamentos:** exportação CSV com horário de chegada sugerido, para o profissional do agendamento contatar os pacientes
@@ -64,21 +65,13 @@ O sistema processa dados de saúde (dado sensível, Art. 11 LGPD). Veja [`docs/l
 
 ## Adaptação ao seu centro
 
-O sistema foi projetado para ser parametrizável sem mexer na lógica principal.
+Tudo é ajustado pela tela **Configuração** (menu superior, login da triagem), sem mexer no código:
 
-### 1. Escala de profissionais
+1. **Escala da equipe** — quem trabalha em cada dia da semana e em que horário. A capacidade do dia é derivada da escala — não há número mágico fixo.
+2. **Parâmetros** — número de poltronas (SUS, convênio, hematologia), vazão por técnico, % de walk-in, tempos de cada etapa. O que mais move o teto do dia é **Punções por técnico por hora**: compare o teto calculado com o realizado no `/relatorio` e ajuste.
+3. **Pacientes** — carga inicial dos pacientes já em tratamento, a partir das fichas, incluindo os ciclos já feitos.
 
-Edite o bloco `# 2. ESCALA DE PROFISSIONAIS` em `scheduler.py`. A capacidade do dia é derivada automaticamente da escala que você definir — não há número mágico fixo.
-
-### 2. Número de poltronas
-
-Ajuste `N_POLTRONAS` no topo de `scheduler.py` e o segmento por número em `app.py` (`SEGMENTO`).
-
-### 3. Parâmetros operacionais
-
-Todos os tempos e taxas estão no bloco `# 1. ESTIMATIVAS CALIBRÁVEIS` de `scheduler.py`. Valores iniciais conservadores; calibre com os dados reais do seu centro após 2–4 semanas de uso.
-
-O parâmetro que mais move o teto do dia é `PUNCOES_POR_TECNICO_HORA`. Compare o teto calculado com o realizado no `/relatorio` e ajuste.
+Os valores em `scheduler.py` são só o padrão da primeira execução. Passo a passo em [`docs/instalacao.md`](docs/instalacao.md) §6.
 
 ---
 
@@ -99,7 +92,7 @@ docs/
   mapeamento-protocolos-cor.md   lookup de protocolos → cor/duração
   mapeamento-premed-duracao.md   lookup de pré-medicação → tempo
   estado-da-arte-scheduling.md   referências acadêmicas sobre o problema
-templates/      HTML das telas (Jinja2)
+templates/      HTML das telas (Jinja2); config_*.html = telas de Configuração
 seed.py         dados de demonstração para testar o sistema
 ```
 
@@ -110,7 +103,8 @@ seed.py         dados de demonstração para testar o sistema
 Este é um MVP operacional, não um sistema otimizado. Algumas decisões foram tomadas conscientemente:
 
 - O scheduler usa heurística (Heijunka + DBR), não otimização inteira. Próximo passo algorítmico depois de calibrado: CP-SAT (OR-Tools) — ver `docs/modelagem-problema.md`
-- Não há importação em massa de pacientes — o cadastro inicial é manual
+- Não há importação de planilha — a carga inicial é digitada na tela Configuração → Pacientes
+- Rode com um único processo (sem `--workers`): escala e parâmetros ficam em memória
 - O login é simples (senha compartilhada), adequado para o fluxo do setor; não substitui controle de acesso institucional
 - SQLite é suficiente para o volume de um centro ambulatorial típico; migração para PostgreSQL está documentada em `docs/migrar-postgres.md`
 

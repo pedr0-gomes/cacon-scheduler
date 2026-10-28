@@ -14,13 +14,14 @@ Este documento é para os operadores do sistema. Público: enfermeiro de triagem
 | Horizonte | `/horizonte` | Enfermeiro de triagem | Agendamento de retornos |
 | Lista de agendamentos | `/lista` | Profissional do agendamento | Para contato com pacientes |
 | Relatório de fim de dia | `/relatorio` | Farmacêutica / coordenação | Final do expediente |
+| Configuração | `/configuracao` | Farmacêutica / coordenação | Implantação e quando a equipe ou os parâmetros mudam |
 | Auditoria | `/auditoria` | Uso restrito (login) | Quando necessário |
 
 ---
 
 ## Login
 
-Somente as telas de triagem exigem login (`/`, `/confirmacao`, `/horizonte`, `/relatorio`, `/auditoria`).
+Somente as telas de triagem exigem login (`/`, `/confirmacao`, `/horizonte`, `/relatorio`, `/configuracao`, `/auditoria`).
 
 O painel de poltronas (`/painel`) **não exige login** — foi uma decisão deliberada para não criar atrito no tablet compartilhado do salão.
 
@@ -56,7 +57,7 @@ No modal, preencha:
 | Número de prontuário | Recomendado | |
 | Telefone | Recomendado | |
 | Nome da mãe + data de nascimento | Recomendado | Dois identificadores para segurança da identificação |
-| Convênio | Se aplicável | Reserva poltrona 26–30 |
+| Convênio | Se aplicável | Senta só nas poltronas de convênio (definidas em Configuração → Parâmetros) |
 | Ordem médica | Se aplicável | Prioridade máxima no scheduler |
 | Flexibilidade | Padrão: Alta | "Baixa" = paciente com restrição de horário |
 
@@ -76,7 +77,7 @@ Após a sessão de um paciente ser concluída no painel, acesse `/horizonte` par
 ## Fluxo diário — equipe do salão (painel)
 
 1. Acesse `/painel` em qualquer navegador na rede local
-2. O painel mostra as 34 poltronas com status em tempo real por cor:
+2. O painel mostra todas as poltronas (quantidade definida em Configuração → Parâmetros) com status em tempo real por cor:
    - **Cinza** — livre
    - **Amarelo** — aguardando punção
    - **Laranja** — pré-QT em andamento
@@ -134,13 +135,47 @@ O relatório mostra:
 
 **O scheduler não é uma ordem.** Os horários sugeridos são pontos de partida; a equipe continua decidindo na prática. O valor do sistema está no nivelamento do fluxo ao longo do dia, não em controlar cada detalhe.
 
-**Calibração ao longo do tempo.** Após 2–4 semanas de uso, compare o teto calculado com o total realizado no relatório. Se o teto calculado estiver muito acima do real, o parâmetro `PUNCOES_POR_TECNICO_HORA` em `scheduler.py` precisa ser reduzido — chame o desenvolvedor.
+**Calibração ao longo do tempo.** Após 2–4 semanas de uso, compare o teto calculado com o total realizado no relatório. Se o teto calculado estiver muito acima do real, reduza **Punções por técnico por hora** em Configuração → Parâmetros.
 
 **Walk-in esgotou as vagas.** Se o pool walk-in estiver cheio e chegar um paciente com ordem médica, o sistema permite o cadastro e o scheduler move o agendado com `flexibilidade = alta` para acomodar.
 
 **Paciente não confirmou mas apareceu.** Cadastre como walk-in normalmente. O sistema trata como entrada do dia.
 
-**Protocolo novo não está na lista.** Use "Outro protocolo..." no modal. Informe a duração estimada da QT em minutos para o scheduler alocar corretamente. Avise o desenvolvedor para adicionar o protocolo à lista fixa.
+**Protocolo novo não está na lista.** Use "Outro protocolo..." no modal. Informe a duração estimada da QT em minutos para o scheduler alocar corretamente. Para entrar na lista fixa, o protocolo precisa ser adicionado em `scheduler.py` (`PROTOCOLO`) e `app.py` (`PROTOCOLO_LABEL`).
+
+---
+
+## Configuração — farmacêutica / coordenação
+
+Acesse **Configuração** no menu. Cada aba tem as instruções na própria tela.
+
+### Pacientes — carga inicial
+
+Para cadastrar os pacientes que já estão em tratamento, a partir das fichas:
+
+1. Preencha nome, protocolo e **data da próxima sessão** (obrigatórios)
+2. Em **Ciclos já feitos**, informe quantas sessões o paciente já fez antes do sistema (cada ida à poltrona conta 1) e o **total prescrito** — é o que permite ao sistema saber quando o tratamento termina
+3. **Salvar e cadastrar o próximo**
+
+A sessão já entra como agendada: aparece na Confirmação D-1, no Horizonte e na Lista. Cadastro errado → **Editar** na lista. **Remover** só funciona enquanto o paciente não tem sessão registrada no painel.
+
+### Escala da equipe
+
+Define quem trabalha em cada dia e horário — é daí que sai o teto de pacientes do dia.
+
+- Escolha o dia da semana, ajuste horários e intervalo de cada profissional, **Salvar** na linha
+- **+ Adicionar** inclui um profissional; **Remover** tira
+- **Copiar** replica a escala de um dia para outros; **Restaurar escala padrão** volta ao original
+- Dia sem ninguém = setor fechado: o sistema não agenda retorno nesse dia
+- Um técnico do salão fica sempre na montagem da droga — o sistema já desconta; cadastre todos os técnicos
+
+A tela mostra o teto do dia e quantos técnicos, enfermeiros e higienizadores estão disponíveis em cada hora. As mudanças valem na hora.
+
+### Parâmetros
+
+Número de poltronas (SUS, convênio, hematologia), punções por técnico por hora, % de vagas para walk-in, horário da última punção e os tempos de cada etapa. A tela mostra o teto resultante de cada dia da semana. Valor diferente do padrão fica destacado em amarelo; **Restaurar padrões** volta tudo.
+
+Toda alteração em Configuração fica registrada na Auditoria.
 
 ---
 

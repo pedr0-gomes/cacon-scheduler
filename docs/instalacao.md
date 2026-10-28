@@ -94,21 +94,17 @@ http://<IP-do-servidor>:8001
 
 ---
 
-## 6. Populações iniciais do banco
+## 6. Primeira configuração (pela tela, sem mexer no código)
 
-O sistema não tem tela de importação em massa. O cadastro de pacientes é feito manualmente pela triagem via "+ Walk-in" na tela de Triagem.
+Tudo que precisa ser ajustado ao seu centro é feito em **Configuração** (menu superior, exige o login da triagem). Faça nesta ordem:
 
-**Quem cadastra:** o enfermeiro de triagem ou o profissional do agendamento.
+1. **Escala da equipe** (`/configuracao/escala`) — confira, para cada dia da semana, quem trabalha e em que horário. O sistema vem com uma escala de exemplo (seg–sex; sábado e domingo fechados). A capacidade do dia é calculada a partir dela.
+2. **Parâmetros** (`/configuracao/parametros`) — número de poltronas (SUS, convênio, hematologia) e, se quiser, os tempos e a vazão. Os valores padrão servem para começar.
+3. **Pacientes** (`/configuracao/pacientes`) — cadastre os pacientes que já estão em tratamento, a partir das fichas: nome, protocolo, data da próxima sessão e quantos ciclos já foram feitos. Botão **Salvar e cadastrar o próximo** para ir em sequência.
 
-**Fonte dos dados:** prontuário em papel ou sistema atual do hospital.
+Depois da carga inicial, os pacientes novos entram pelo **+ Walk-in** da Triagem, e os retornos são agendados pelo Painel ou pelo Horizonte.
 
-**Campos obrigatórios no primeiro cadastro:**
-- Nome do paciente
-- Protocolo quimioterápico (ou nome livre + cor + bucket de pré-medicação)
-- Data da próxima sessão
-- Total de ciclos prescritos
-
-**Campos recomendados:**
+**Campos recomendados no cadastro:**
 - Número de prontuário (facilita busca)
 - Telefone (facilita contato para confirmação)
 - Nome da mãe + data de nascimento (identidade segura, dois identificadores — ANVISA RDC 220/2004)
@@ -186,8 +182,22 @@ O sistema usa SQLite por padrão — adequado para o volume do CACON. Se o hospi
 
 ## 10. Calibração do scheduler
 
-Os parâmetros do algoritmo ficam no topo de `scheduler.py` (bloco `# 1. ESTIMATIVAS CALIBRÁVEIS`). Os valores padrão refletem a escala real levantada com a farmacêutica do centro em setembro de 2026.
+Escala e parâmetros são editados pela tela **Configuração** (ver §6) e ficam gravados no banco — não é preciso editar `scheduler.py` nem reiniciar o servidor. Os valores em `scheduler.py` são apenas o **padrão** usado na primeira execução e pelos botões "Restaurar padrão".
 
-Se a escala de profissionais mudar (horários, número de técnicos/enfermeiros), edite o bloco `# 2. ESCALA DE PROFISSIONAIS` em `scheduler.py`. A capacidade do dia é derivada automaticamente da escala — não há número mágico hardcoded.
+O parâmetro que mais move o teto do dia é **Punções por técnico por hora**. Após 2–4 semanas de uso real, compare o teto calculado com o realizado no `/relatorio` e ajuste em Configuração → Parâmetros.
 
-O parâmetro que mais move o teto do dia é `PUNCOES_POR_TECNICO_HORA`. Após 2–4 semanas de uso real, compare o teto calculado com o realizado no `/relatorio` e ajuste esse valor.
+> Rode o servidor com **um único processo** (o comando do §5, sem `--workers`): a escala e os parâmetros ficam em memória e são recarregados do banco a cada alteração.
+
+---
+
+## 11. Atualizar uma instalação existente
+
+```bash
+cd /caminho/cacon-scheduler
+uv run python backup.py        # backup antes de atualizar
+git pull
+uv sync
+sudo systemctl restart cacon   # ou pare e rode de novo o comando do §5
+```
+
+O banco (`cacon.db`) é preservado: tabelas e colunas novas são criadas automaticamente no start, sem apagar dados.
