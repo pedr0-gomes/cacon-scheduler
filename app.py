@@ -7,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode
 import json
 
 from config import SENHA_TRIAGEM, SESSION_SECRET
@@ -28,6 +29,8 @@ from database import (
     adicionar_intercorrencia, agendar_proxima, get_horizonte,
     duracao_mediana_qt, registrar_log, get_logs,
     get_relatorio_dia, salvar_observacoes_dia, get_observacoes_dia,
+    listar_pacientes, get_paciente, paciente_por_nome,
+    cadastrar_paciente, atualizar_paciente, remover_paciente,
 )
 
 PRE_LABEL = {
@@ -662,3 +665,152 @@ async def registro_get(request: Request, data: str = Query(default=None)):
         "eventos":    EVENTOS,
         "data":       data,
     })
+
+
+# ---------------------------------------------------------------------------
+# Configuração — cadastro de pacientes (carga inicial a partir das fichas)
+# ---------------------------------------------------------------------------
+def _int_ou_none(v) -> Optional[int]:
+    v = (v or "").strip()
+    return int(v) if v.isdigit() else None
+
+
+def _dados_paciente(form) -> tuple[dict, str, Optional[str]]:
+    """Lê o formulário de cadastro → (dados, data_proxima, erro)."""
+    g = lambda k: (form.get(k) or "").strip()
+    dados = {
+        "nome":            g("nome").title(),
+        "nome_mae":        g("nome_mae").title() or None,
+        "data_nascimento": g("data_nascimento") or None,
+        "num_prontuario":  g("num_prontuario") or None,
+        "telefone":        g("telefone") or None,
+        "total_ciclos":    _int_ou_none(form.get("total_ciclos")),
+        "ciclos_previos":  _int_ou_none(form.get("ciclos_previos")) or 0,
+        "is_convenio":     1 if form.get("is_convenio") else 0,
+        "flexibilidade":   "baixa" if g("flexibilidade") == "baixa" else "alta",
+    }
+    data_proxima = g("data_proxima")
+
+    protocolo = g("protocolo")
+    pre = g("pre_override")
+    qt  = _int_ou_none(form.get("qt_override_min"))
+    if protocolo == "outro":
+        dados["protocolo"]       = g("protocolo_custom")
+        dados["cor_qt_override"] = g("cor_qt_override") if g("cor_qt_override") in QT_MIN else None
+        dados["pre_override"]    = pre if pre in PRE_LABEL else "B"
+        dados["qt_override_min"] = qt
+    else:
+        dados["protocolo"]       = protocolo
+        dados["cor_qt_override"] = None
+        padrao = PROTOCOLO.get(protocolo)
+        # Só guarda o que difere do padrão do protocolo — cadastro limpo
+        dados["pre_override"]    = pre if (padrao and pre in PRE_LABEL and pre != padrao[1]) else None
+        dados["qt_override_min"] = qt if (padrao and qt and qt != QT_MIN[padrao[0]]) else None
+    dados["intervalo_ciclo_dias"] = (
+        _int_ou_none(form.get("intervalo_ciclo_dias")) or INTERVALO_CICLO.get(dados["protocolo"]) or 21
+    )
+
+    erro = None
+    if not dados["nome"]:
+        erro = "Informe o nome do paciente."
+    elif protocolo == "outro" and not dados["protocolo"]:
+        erro = "Informe o nome do protocolo."
+    elif protocolo == "outro" and not dados["cor_qt_override"]:
+        erro = "Escolha a cor / duração do protocolo."
+    elif protocolo != "outro" and protocolo not in PROTOCOLO:
+        erro = "Escolha o protocolo."
+    elif not data_proxima:
+        erro = "Informe a data da próxima sessão."
+    elif dados["total_ciclos"] and dados["ciclos_previos"] >= dados["total_ciclos"]:
+        erro = "As sessões já feitas completam o total prescrito — o paciente não tem sessão a agendar."
+    else:
+        try:
+            date.fromisoformat(data_proxima)
+        except ValueError:
+            erro = "Data da próxima sessão inválida."
+    return dados, data_proxima, erro
+
+
+def _render_pacientes(request: Request, *, form: Optional[dict] = None, editar: Optional[dict] = None,
+                      erro: Optional[str] = None, ok: Optional[str] = None, status_code: int = 200):
+    return templates.TemplateResponse(request, "config_pacientes.html", {
+        "pacientes":       listar_pacientes(),
+        "form":            form or {},
+        "editar":          editar,
+        "erro":            erro,
+        "ok":              ok,
+        "grupos":          GRUPOS_DROPDOWN,
+        "labels":          PROTOCOLO_LABEL,
+        "pre_label":       PRE_LABEL,
+        "protocolo_json":  json.dumps({k: v[1] for k, v in PROTOCOLO.items()}),
+        "qt_json":         json.dumps({k: QT_MIN[v[0]] for k, v in PROTOCOLO.items()}),
+        "intervalo_json":  json.dumps(INTERVALO_CICLO),
+        "protocolos":      PROTOCOLO,
+        "hoje":            str(date.today()),
+    }, status_code=status_code)
+
+
+def _form_de_paciente(p: dict) -> dict:
+    """Paciente do banco → valores do formulário de edição."""
+    conhecido = p["protocolo"] in PROTOCOLO
+    form = {k: ("" if v is None else v) for k, v in p.items()}
+    form["protocolo"]        = p["protocolo"] if conhecido else "outro"
+    form["protocolo_custom"] = "" if conhecido else p["protocolo"]
+    form["data_proxima"]     = p.get("proxima_sessao") or ""
+    if conhecido:
+        cor, bucket = PROTOCOLO[p["protocolo"]]
+        form["pre_override"]    = p["pre_override"] or bucket
+        form["qt_override_min"] = p["qt_override_min"] or QT_MIN[cor]
+    return form
+
+
+@app.get("/configuracao")
+async def configuracao_get():
+    return RedirectResponse("/configuracao/pacientes", status_code=303)
+
+
+@app.get("/configuracao/pacientes", response_class=HTMLResponse)
+async def config_pacientes_get(request: Request, editar: Optional[int] = Query(default=None),
+                               ok: Optional[str] = Query(default=None), erro: Optional[str] = Query(default=None)):
+    p = get_paciente(editar) if editar else None
+    return _render_pacientes(request, form=_form_de_paciente(p) if p else None, editar=p, ok=ok, erro=erro)
+
+
+@app.post("/configuracao/pacientes")
+async def config_pacientes_criar(request: Request):
+    form = dict(await request.form())
+    dados, data_proxima, erro = _dados_paciente(form)
+    if not erro and paciente_por_nome(dados["nome"]):
+        erro = f"Já existe um paciente chamado {dados['nome']}. Para corrigir, use Editar na lista abaixo."
+    if erro:
+        return _render_pacientes(request, form=form, erro=erro, status_code=422)
+    pac_id = cadastrar_paciente(dados, data_proxima)
+    registrar_log("cadastro:paciente", _usuario(request), detalhes=f"pac:{pac_id} {dados['nome']}")
+    return RedirectResponse("/configuracao/pacientes?" + urlencode({"ok": dados["nome"]}), status_code=303)
+
+
+@app.post("/configuracao/pacientes/{paciente_id}")
+async def config_pacientes_atualizar(request: Request, paciente_id: int):
+    p = get_paciente(paciente_id)
+    if not p:
+        return RedirectResponse("/configuracao/pacientes", status_code=303)
+    form = dict(await request.form())
+    dados, data_proxima, erro = _dados_paciente(form)
+    outro = paciente_por_nome(dados["nome"]) if not erro else None
+    if outro and outro != paciente_id:
+        erro = f"Já existe outro paciente chamado {dados['nome']}."
+    if erro:
+        return _render_pacientes(request, form=form, editar=p, erro=erro, status_code=422)
+    atualizar_paciente(paciente_id, dados, data_proxima)
+    registrar_log("cadastro:edicao", _usuario(request), detalhes=f"pac:{paciente_id} {dados['nome']}")
+    return RedirectResponse("/configuracao/pacientes?" + urlencode({"ok": dados["nome"]}), status_code=303)
+
+
+@app.post("/configuracao/pacientes/{paciente_id}/remover")
+async def config_pacientes_remover(request: Request, paciente_id: int):
+    p = get_paciente(paciente_id)
+    if p and remover_paciente(paciente_id):
+        registrar_log("cadastro:remocao", _usuario(request), detalhes=f"pac:{paciente_id} {p['nome']}")
+        return RedirectResponse("/configuracao/pacientes", status_code=303)
+    erro = "Este paciente já tem sessão registrada no painel — o histórico não pode ser apagado." if p else None
+    return RedirectResponse("/configuracao/pacientes?" + urlencode({"erro": erro or ""}), status_code=303)

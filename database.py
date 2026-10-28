@@ -79,6 +79,8 @@ def init_db():
             "ALTER TABLE pacientes ADD COLUMN num_prontuario TEXT",
             "ALTER TABLE pacientes ADD COLUMN telefone TEXT",
             "ALTER TABLE pacientes ADD COLUMN cor_qt_override TEXT",
+            # Sessões feitas antes de o paciente entrar no sistema (carga inicial)
+            "ALTER TABLE pacientes ADD COLUMN ciclos_previos INTEGER NOT NULL DEFAULT 0",
         ]
         for sql in _migracoes:
             try:
@@ -248,15 +250,120 @@ def adicionar_intercorrencia(ag_id: int, texto: str):
 
 
 def ciclo_atual(paciente_id: int) -> int:
-    """Conta sessões concluídas (retirada registrada) do paciente."""
+    """Conta sessões concluídas: as feitas antes do sistema (ciclos_previos)
+    + as registradas aqui (retirada registrada)."""
     with get_db() as db:
-        return db.execute("""
+        previos = db.execute(
+            "SELECT COALESCE(ciclos_previos, 0) FROM pacientes WHERE id = ?", (paciente_id,)
+        ).fetchone()
+        no_sistema = db.execute("""
             SELECT COUNT(DISTINCT a.id)
             FROM agendamentos a
             JOIN eventos e ON e.agendamento_id = a.id
             WHERE a.paciente_id = ? AND e.tipo = 'retirada'
               AND a.status != 'cancelado'
         """, (paciente_id,)).fetchone()[0]
+        return (previos[0] if previos else 0) + no_sistema
+
+
+# ---------------------------------------------------------------------------
+# Cadastro de pacientes (tela Configuração → Pacientes)
+# ---------------------------------------------------------------------------
+
+CAMPOS_PACIENTE = (
+    "nome", "nome_mae", "data_nascimento", "protocolo", "pre_override",
+    "qt_override_min", "intervalo_ciclo_dias", "total_ciclos", "ciclos_previos",
+    "is_convenio", "flexibilidade", "num_prontuario", "telefone", "cor_qt_override",
+)
+
+
+def paciente_por_nome(nome: str) -> int | None:
+    with get_db() as db:
+        r = db.execute("SELECT id FROM pacientes WHERE nome = ?", (nome,)).fetchone()
+        return r["id"] if r else None
+
+
+def _proximo_agendamento(db, paciente_id: int):
+    """Próxima sessão (hoje ou depois) ainda não iniciada — a que o cadastro edita."""
+    from datetime import date
+    return db.execute("""
+        SELECT a.id, a.data_sessao FROM agendamentos a
+        WHERE a.paciente_id = ? AND a.data_sessao >= ? AND a.status != 'cancelado'
+          AND NOT EXISTS (SELECT 1 FROM eventos e WHERE e.agendamento_id = a.id)
+        ORDER BY a.data_sessao LIMIT 1
+    """, (paciente_id, date.today().isoformat())).fetchone()
+
+
+def listar_pacientes() -> list:
+    with get_db() as db:
+        rows = db.execute("SELECT * FROM pacientes ORDER BY nome").fetchall()
+        result = []
+        for r in rows:
+            prox = _proximo_agendamento(db, r["id"])
+            result.append({
+                **dict(r),
+                "proxima_sessao": prox["data_sessao"] if prox else None,
+            })
+    for p in result:
+        p["ciclo_atual"] = ciclo_atual(p["id"])
+    return result
+
+
+def get_paciente(paciente_id: int) -> dict | None:
+    with get_db() as db:
+        r = db.execute("SELECT * FROM pacientes WHERE id = ?", (paciente_id,)).fetchone()
+        if not r:
+            return None
+        prox = _proximo_agendamento(db, paciente_id)
+        return {**dict(r), "proxima_sessao": prox["data_sessao"] if prox else None}
+
+
+def cadastrar_paciente(dados: dict, data_proxima: str) -> int:
+    """Carga inicial: cria o paciente e a próxima sessão já como 'agendado'."""
+    valores = {c: dados.get(c) for c in CAMPOS_PACIENTE}
+    with get_db() as db:
+        cols = ", ".join(valores)
+        marcas = ", ".join("?" for _ in valores)
+        cur = db.execute(f"INSERT INTO pacientes ({cols}) VALUES ({marcas})", tuple(valores.values()))
+        pac_id = cur.lastrowid
+        db.execute(
+            "INSERT INTO agendamentos (paciente_id, data_sessao, status) VALUES (?, ?, 'agendado')",
+            (pac_id, data_proxima),
+        )
+        return pac_id
+
+
+def atualizar_paciente(paciente_id: int, dados: dict, data_proxima: str):
+    """Corrige o cadastro e move (ou cria) a próxima sessão ainda não iniciada."""
+    valores = {c: dados.get(c) for c in CAMPOS_PACIENTE}
+    with get_db() as db:
+        sets = ", ".join(f"{c}=?" for c in valores)
+        db.execute(f"UPDATE pacientes SET {sets} WHERE id=?", (*valores.values(), paciente_id))
+        prox = _proximo_agendamento(db, paciente_id)
+        if prox:
+            db.execute("UPDATE agendamentos SET data_sessao=? WHERE id=?", (data_proxima, prox["id"]))
+        else:
+            db.execute(
+                "INSERT INTO agendamentos (paciente_id, data_sessao, status) VALUES (?, ?, 'agendado')",
+                (paciente_id, data_proxima),
+            )
+
+
+def remover_paciente(paciente_id: int) -> bool:
+    """Apaga um cadastro feito por engano. Recusa (False) se o paciente já tem
+    sessão registrada no painel — esse histórico não se apaga."""
+    with get_db() as db:
+        tem_historico = db.execute("""
+            SELECT 1 FROM eventos e JOIN agendamentos a ON a.id = e.agendamento_id
+            WHERE a.paciente_id = ? LIMIT 1
+        """, (paciente_id,)).fetchone()
+        if tem_historico:
+            return False
+        db.execute("""DELETE FROM intercorrencias WHERE agendamento_id IN
+                      (SELECT id FROM agendamentos WHERE paciente_id = ?)""", (paciente_id,))
+        db.execute("DELETE FROM agendamentos WHERE paciente_id = ?", (paciente_id,))
+        db.execute("DELETE FROM pacientes WHERE id = ?", (paciente_id,))
+        return True
 
 
 def reagendar(ag_id: int, nova_data: str):

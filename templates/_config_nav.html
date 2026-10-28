@@ -1,0 +1,28 @@
+<style>
+  .config-tabs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+  .config-tabs a {
+    padding: 8px 16px; border-radius: 8px; text-decoration: none;
+    font-weight: 600; font-size: 14px; color: #374151; background: #f3f4f6;
+  }
+  .config-tabs a.ativo { background: #1a1a2e; color: #fff; }
+  .ajuda {
+    background: #eff6ff; border: 1.5px solid #bfdbfe; border-radius: 10px;
+    padding: 14px 18px; font-size: 14px; color: #1e3a8a; margin-bottom: 24px; line-height: 1.55;
+  }
+  .ajuda ol, .ajuda ul { margin: 6px 0 0 20px; }
+  .aviso-ok   { background: #d1fae5; border: 1.5px solid #10b981; color: #065f46; border-radius: 8px; padding: 10px 14px; font-weight: 600; margin-bottom: 16px; }
+  .aviso-erro { background: #fee2e2; border: 1.5px solid #ef4444; color: #991b1b; border-radius: 8px; padding: 10px 14px; font-weight: 600; margin-bottom: 16px; }
+  input[type=number], input[type=date], input[type=time] {
+    border: 1.5px solid #d1d5db; border-radius: 8px; padding: 10px 14px;
+    font-size: 14px; outline: none; background: #fff; width: 100%; font-family: inherit;
+  }
+  input[type=number]:focus, input[type=date]:focus, input[type=time]:focus { border-color: #4e9af1; }
+  .dica { font-size: 12px; color: #6b7280; margin-top: 4px; }
+</style>
+
+<h1>Configuração</h1>
+<p class="subtitulo">Ajustes do sistema feitos pela própria equipe — sem mexer no código.</p>
+
+<div class="config-tabs">
+  <a href="/configuracao/pacientes" class="{% if request.url.path.startswith('/configuracao/pacientes') %}ativo{% endif %}">Pacientes</a>
+</div>

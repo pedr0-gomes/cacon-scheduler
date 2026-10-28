@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}Pacientes — Configuração — CACON{% endblock %}
+
+{% block content %}
+{% include "_config_nav.html" %}
+
+<div class="ajuda">
+  <strong>Como cadastrar os pacientes que já estão em tratamento</strong>
+  <ol>
+    <li>Pegue a ficha do paciente e preencha o formulário. Só os campos com <strong>*</strong> são obrigatórios.</li>
+    <li>Em <strong>Ciclos já feitos</strong>, informe quantas sessões o paciente já fez antes de entrar no sistema — assim o sistema sabe quando o tratamento termina. Cada ida à poltrona conta 1.</li>
+    <li>Clique em <strong>Salvar e cadastrar o próximo</strong>. O paciente aparece na lista abaixo e a sessão já entra na Confirmação, no Horizonte e na Lista de agendamentos.</li>
+  </ol>
+  Errou algo? Clique em <strong>Editar</strong> na lista. Pacientes novos do dia a dia continuam entrando pelo <strong>+ Walk-in</strong> da Triagem.
+</div>
+
+{% if ok %}<div class="aviso-ok">✓ {{ ok }} salvo.</div>{% endif %}
+{% if erro %}<div class="aviso-erro">{{ erro }}</div>{% endif %}
+
+<div class="card">
+  <h2>{% if editar %}Editar: {{ editar.nome }}{% else %}Novo paciente{% endif %}</h2>
+
+  <form method="post" action="/configuracao/pacientes{% if editar %}/{{ editar.id }}{% endif %}">
+    <div class="form-row">
+      <div class="field-largo">
+        <label for="c_nome">Nome do paciente *</label>
+        <input type="text" id="c_nome" name="nome" value="{{ form.nome or '' }}" autocomplete="off" required autofocus>
+      </div>
+      <div class="field">
+        <label for="c_prontuario">Nº do prontuário</label>
+        <input type="text" id="c_prontuario" name="num_prontuario" value="{{ form.num_prontuario or '' }}" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="c_telefone">Telefone</label>
+        <input type="text" id="c_telefone" name="telefone" value="{{ form.telefone or '' }}" autocomplete="off" inputmode="tel">
+      </div>
+    </div>
+
+    <div class="form-row" style="margin-top:10px;">
+      <div class="field-largo">
+        <label for="c_mae">Nome da mãe</label>
+        <input type="text" id="c_mae" name="nome_mae" value="{{ form.nome_mae or '' }}" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="c_nasc">Data de nascimento</label>
+        <input type="text" id="c_nasc" name="data_nascimento" value="{{ form.data_nascimento or '' }}"
+          placeholder="DD/MM/AAAA" autocomplete="off" inputmode="numeric" maxlength="10">
+      </div>
+    </div>
+
+    <div class="form-row" style="margin-top:10px;">
+      <div class="field-largo">
+        <label for="c_protocolo">Protocolo de quimioterapia *</label>
+        <select id="c_protocolo" name="protocolo" required>
+          <option value="" disabled {% if not form.protocolo %}selected{% endif %}>— selecione —</option>
+          {% for grupo, slugs in grupos.items() %}
+            <optgroup label="{{ grupo }}">
+              {% for slug in slugs %}
+                <option value="{{ slug }}" {% if form.protocolo == slug %}selected{% endif %}>{{ labels[slug] }}</option>
+              {% endfor %}
+            </optgroup>
+          {% endfor %}
+          <optgroup label="— Personalizado">
+            <option value="outro" {% if form.protocolo == 'outro' %}selected{% endif %}>Outro protocolo...</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="field">
+        <label for="c_pre">Pré-QT</label>
+        <select id="c_pre" name="pre_override">
+          {% for k, v in pre_label.items() %}
+            <option value="{{ k }}" {% if (form.pre_override or 'B') == k %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="c_qt">Tempo de QT (min)</label>
+        <input type="number" id="c_qt" name="qt_override_min" value="{{ form.qt_override_min or '' }}" min="5" max="600">
+      </div>
+    </div>
+
+    <div id="c_custom" class="form-row" style="margin-top:10px; {% if form.protocolo != 'outro' %}display:none;{% endif %}">
+      <div class="field-largo">
+        <label for="c_prot_custom">Nome do protocolo *</label>
+        <input type="text" id="c_prot_custom" name="protocolo_custom" value="{{ form.protocolo_custom or '' }}"
+          placeholder="Ex.: FOLFIRINOX" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="c_cor">Cor / duração estimada *</label>
+        <select id="c_cor" name="cor_qt_override">
+          <option value="verde"    {% if form.cor_qt_override == 'verde' %}selected{% endif %}>Verde — menos de 1h</option>
+          <option value="azul"     {% if form.cor_qt_override in (None, '', 'azul') %}selected{% endif %}>Azul — 1h a 2h</option>
+          <option value="amarelo"  {% if form.cor_qt_override == 'amarelo' %}selected{% endif %}>Amarelo — 2h a 4h</option>
+          <option value="vermelho" {% if form.cor_qt_override == 'vermelho' %}selected{% endif %}>Vermelho — mais de 4h</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row" style="margin-top:10px;">
+      <div class="field">
+        <label for="c_data">Data da próxima sessão *</label>
+        <input type="date" id="c_data" name="data_proxima" value="{{ form.data_proxima or '' }}" min="{{ hoje }}" required>
+      </div>
+      <div class="field">
+        <label for="c_previos">Ciclos já feitos</label>
+        <input type="number" id="c_previos" name="ciclos_previos" value="{{ form.ciclos_previos or 0 }}" min="0" max="100">
+        <div class="dica">Antes de entrar no sistema</div>
+      </div>
+      <div class="field">
+        <label for="c_total">Total de ciclos prescritos</label>
+        <input type="number" id="c_total" name="total_ciclos" value="{{ form.total_ciclos or '' }}" min="1" max="100">
+      </div>
+      <div class="field">
+        <label for="c_intervalo">Intervalo entre sessões (dias)</label>
+        <input type="number" id="c_intervalo" name="intervalo_ciclo_dias" value="{{ form.intervalo_ciclo_dias or '' }}" min="1" max="365">
+      </div>
+    </div>
+
+    <div class="form-row" style="margin-top:10px; align-items:center;">
+      <div class="field">
+        <label for="c_flex">Distância / flexibilidade</label>
+        <select id="c_flex" name="flexibilidade">
+          <option value="alta"  {% if form.flexibilidade != 'baixa' %}selected{% endif %}>Alta — mora perto, pode reagendar</option>
+          <option value="baixa" {% if form.flexibilidade == 'baixa' %}selected{% endif %}>Baixa — vem de longe</option>
+        </select>
+      </div>
+      <div style="padding-top:20px;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; font-size:13px;">
+          <input type="checkbox" name="is_convenio" value="1" style="width:16px; height:16px;"
+            {% if form.is_convenio and form.is_convenio not in ('0', 0) %}checked{% endif %}>
+          Convênio
+        </label>
+      </div>
+      <div style="padding-top:20px; margin-left:auto; display:flex; gap:8px;">
+        {% if editar %}
+          <a href="/configuracao/pacientes" class="btn btn-ghost">Cancelar</a>
+          <button type="submit" class="btn btn-primary">Salvar alterações</button>
+        {% else %}
+          <button type="submit" class="btn btn-primary">Salvar e cadastrar o próximo</button>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+    <h2 style="margin:0;">Pacientes cadastrados ({{ pacientes|length }})</h2>
+    <input type="text" id="busca" placeholder="Buscar por nome ou prontuário" autocomplete="off"
+      style="max-width:320px; margin-left:auto;">
+  </div>
+  {% if pacientes %}
+  <div style="overflow-x:auto;">
+  <table class="tabela-agenda" id="tabela-pacientes">
+    <thead>
+      <tr><th>Nome</th><th>Prontuário</th><th>Protocolo</th><th>Ciclos</th><th>Próxima sessão</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for p in pacientes %}
+      <tr data-busca="{{ (p.nome ~ ' ' ~ (p.num_prontuario or ''))|lower }}">
+        <td><strong>{{ p.nome }}</strong></td>
+        <td>{{ p.num_prontuario or '—' }}</td>
+        <td>{{ labels.get(p.protocolo, p.protocolo) }}</td>
+        <td>{{ p.ciclo_atual }}{% if p.total_ciclos %} / {{ p.total_ciclos }}{% endif %}</td>
+        <td>
+          {% if p.proxima_sessao %}{{ p.proxima_sessao[8:10] }}/{{ p.proxima_sessao[5:7] }}/{{ p.proxima_sessao[0:4] }}
+          {% else %}<span style="color:#9ca3af;">—</span>{% endif %}
+        </td>
+        <td style="white-space:nowrap; text-align:right;">
+          <a href="/configuracao/pacientes?editar={{ p.id }}" class="btn btn-ghost btn-sm">Editar</a>
+          <form method="post" action="/configuracao/pacientes/{{ p.id }}/remover" style="display:inline;"
+                onsubmit="return confirm('Remover {{ p.nome }}? Use só para cadastro feito por engano.');">
+            <button type="submit" class="btn btn-ghost btn-sm" style="color:#ef4444;">Remover</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+    <p class="empty">Nenhum paciente cadastrado ainda.</p>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  var PROT_BUCKET    = {{ protocolo_json | safe }};
+  var PROT_QT        = {{ qt_json | safe }};
+  var PROT_INTERVALO = {{ intervalo_json | safe }};
+
+  var sel    = document.getElementById('c_protocolo');
+  var custom = document.getElementById('c_custom');
+  var pre    = document.getElementById('c_pre');
+  var qt     = document.getElementById('c_qt');
+  var interv = document.getElementById('c_intervalo');
+
+  // Ao trocar o protocolo, preenche os tempos padrão (a pessoa pode ajustar)
+  sel.addEventListener('change', function () {
+    var v = this.value;
+    custom.style.display = v === 'outro' ? '' : 'none';
+    if (v === 'outro') { pre.value = 'B'; qt.value = ''; interv.value = ''; return; }
+    if (PROT_BUCKET[v])    pre.value    = PROT_BUCKET[v];
+    if (PROT_QT[v])        qt.value     = PROT_QT[v];
+    if (PROT_INTERVALO[v]) interv.value = PROT_INTERVALO[v];
+  });
+
+  var nasc = document.getElementById('c_nasc');
+  nasc.addEventListener('input', function () {
+    var v = this.value.replace(/\D/g, '').slice(0, 8);
+    if (v.length >= 5)      v = v.slice(0,2) + '/' + v.slice(2,4) + '/' + v.slice(4);
+    else if (v.length >= 3) v = v.slice(0,2) + '/' + v.slice(2);
+    this.value = v;
+  });
+
+  var busca = document.getElementById('busca');
+  busca.addEventListener('input', function () {
+    var q = this.value.trim().toLowerCase();
+    document.querySelectorAll('#tabela-pacientes tbody tr').forEach(function (tr) {
+      tr.style.display = tr.dataset.busca.indexOf(q) >= 0 ? '' : 'none';
+    });
+  });
+})();
+</script>
+{% endblock %}

@@ -437,6 +437,7 @@
     <a href="/horizonte" class="{% if request.url.path == '/horizonte' %}ativo{% endif %}">Horizonte</a>
     <a href="/painel" class="{% if request.url.path == '/painel' %}ativo{% endif %}">Painel</a>
     <a href="/relatorio" class="{% if request.url.path == '/relatorio' %}ativo{% endif %}">Relatório</a>
+    <a href="/configuracao" class="{% if request.url.path.startswith('/configuracao') %}ativo{% endif %}">Configuração</a>
     <a href="/logout" style="margin-left:auto; color:#ef4444;">Sair</a>
   </nav>
   {% endblock %}
