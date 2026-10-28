@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from datetime import datetime, date
+from pathlib import Path
 from typing import Optional
 import json
 
@@ -117,11 +118,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return RedirectResponse("/login", status_code=303)
         return await call_next(request)
 
+BASE_DIR = Path(__file__).parent
+
 app = FastAPI()
 app.add_middleware(AuthMiddleware)
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=BASE_DIR / "templates")
 init_db()
 
 
