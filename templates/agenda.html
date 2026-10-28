@@ -68,6 +68,57 @@
   </div>
 </div>
 
+<!-- ═══════════════════════ SALÃO AGORA ════════════════ -->
+{% set n_pol_livres = poltronas | selectattr('status','eq','livre') | list | length %}
+{% set n_pol_reserv = poltronas | selectattr('status','eq','aguardando_puncao') | list | length %}
+<style>
+  .salao-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
+  .mini-pol {
+    border: 2px solid; border-radius: 10px; padding: 8px 6px; text-align: center; min-height: 74px;
+    display: flex; flex-direction: column; justify-content: center; gap: 2px; overflow: hidden;
+  }
+  .mini-pol .n   { font-size: 20px; font-weight: 800; line-height: 1; }
+  .mini-pol .nm  { font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mini-pol .st  { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; opacity: .85; }
+  .mini-pol .sg  { font-size: 9px; opacity: .55; text-transform: uppercase; }
+  .legenda-salao { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #6b7280; }
+  .legenda-salao i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; border: 1.5px solid; vertical-align: -1px; }
+</style>
+<div class="card no-print" style="padding:18px 20px;">
+  <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+    <h2 style="margin:0;">Salão agora</h2>
+    <span style="font-size:13px; color:#6b7280;">{{ n_pol_livres }} livres · {{ n_pol_reserv }} reservadas para quem ainda não chegou · {{ poltronas|length }} no total · atualizado às {{ agora_txt }}</span>
+    <a href="/" class="btn btn-ghost btn-sm">Atualizar</a>
+    <button class="btn btn-primary btn-sm" style="margin-left:auto;"
+      onclick="document.getElementById('modal-walkin').style.display='flex'">+ Walk-in</button>
+  </div>
+  <div class="salao-grid">
+    {% for p in poltronas %}
+    <div class="mini-pol chair-{{ p.status }}" title="{% if p.sessao %}{{ p.sessao.paciente.nome }} — {{ status_label.get(p.status, p.status) }}{% else %}Livre{% endif %}">
+      <div class="n">{{ p.num }}</div>
+      {% if p.sessao %}
+        <div class="nm">{{ p.sessao.paciente.nome.split()[0] }}</div>
+        <div class="st">{{ status_label.get(p.status, '') }}</div>
+      {% else %}
+        <div class="sg">{{ p.segmento }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <div class="legenda-salao" style="margin-top:12px;">
+    <span><i style="background:#fff; border-color:#e5e7eb;"></i>livre</span>
+    <span><i style="background:#fef9c3; border-color:#eab308;"></i>reservada (paciente ainda não puncionado)</span>
+    <span><i style="background:#ffedd5; border-color:#f97316;"></i>pré-QT</span>
+    <span><i style="background:#dbeafe; border-color:#60a5fa;"></i>QT</span>
+    <span><i style="background:#ede9fe; border-color:#7c3aed;"></i>retirada</span>
+    <span><i style="background:#dcfce7; border-color:#22c55e;"></i>higienização</span>
+  </div>
+  <p style="font-size:12px; color:#9ca3af; margin-top:10px;">
+    Poltrona livre não significa vaga na punção: veja a capacidade por horário logo abaixo antes de aceitar um walk-in.
+    Quem ainda não foi puncionado tem poltrona e horário apenas sugeridos.
+  </p>
+</div>
+
 <!-- ═══════════════════════ CAPACIDADE POR JANELA ════════════════ -->
 <div id="bandas-container" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:12px; margin-bottom:24px;">
   {% for b in bandas %}

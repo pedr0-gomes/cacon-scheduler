@@ -353,6 +353,9 @@ async def agenda_get(request: Request):
         "staff_curve_json":  json.dumps(bandas),
         "sessoes_json":      json.dumps([{"chegada": s.chegada} for s in sessoes]),
         "faixa_convenio":    _faixa_convenio_txt(),
+        "poltronas":         _montar_poltronas(ag_list, sessoes),
+        "status_label":      STATUS_LABEL,
+        "agora_txt":         datetime.now().strftime("%H:%M"),
     })
 
 
