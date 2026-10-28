@@ -41,8 +41,12 @@ Use a senha definida em `config.py` (`SENHA_TRIAGEM`).
 ### Manhã: gerenciar walk-ins e acompanhar o dia
 
 1. Acesse `/` (Triagem)
-2. A tela mostra a escala do dia: vagas disponíveis por janela de horário e total de walk-ins ainda possíveis
+2. A tela mostra **Salão agora** (todas as poltronas, com o paciente e a etapa de cada uma), a capacidade por janela de horário e a escala do dia
 3. Quando chegar um paciente walk-in ou uma ordem médica: clique em **+ Walk-in**
+
+> **Poltrona livre não é o mesmo que vaga.** O limite do dia é a punção (quantos técnicos estão disponíveis em cada horário), não o número de poltronas. Antes de aceitar um walk-in, olhe os cartões de capacidade por horário, logo abaixo do salão.
+>
+> Poltrona **reservada** (amarela) é a de um paciente que ainda não foi puncionado: o horário e a poltrona dele são sugestões e podem mudar quando entra gente nova. A partir do momento em que a punção é registrada no painel, o paciente **fica na poltrona** em que foi puncionado.
 
 #### Cadastrar um walk-in
 
