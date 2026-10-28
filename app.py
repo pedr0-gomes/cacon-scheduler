@@ -16,7 +16,7 @@ from scheduler import (
     gerar_escala, Paciente, PacienteManual,
     PROTOCOLO, QT_MIN, PRE_MIN, COR_PRIORIDADE, INTERVALO_CICLO,
     curva_do_dia, capacidade_por_janela, capacidade_do_dia, staff_agora,
-    CARGA_POR_PAPEL, STAFF_REFERENCIA,
+    CARGA_POR_PAPEL,
     staff_em, _fmt,
     DIA_INI, OFFSET_CHEGADA_HOSPITAL,
     T_PUNCAO, T_2A_OFFSET, T_2A_DUR, T_MONTAGEM, T_HIGIENIZACAO,
@@ -31,7 +31,10 @@ from database import (
     get_relatorio_dia, salvar_observacoes_dia, get_observacoes_dia,
     listar_pacientes, get_paciente, paciente_por_nome,
     cadastrar_paciente, atualizar_paciente, remover_paciente,
+    get_escala_semana, salvar_profissional, remover_profissional,
+    copiar_escala, restaurar_escala_padrao,
 )
+import scheduler
 
 PRE_LABEL = {
     "Z": "Z — sem pré-med (0 min)",
@@ -129,6 +132,18 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 init_db()
+
+
+def _carregar_escalas():
+    """Escala do banco → scheduler. Chamar no início e após cada alteração."""
+    scheduler.definir_escalas({
+        dia: [scheduler.Profissional(r["funcao"], r["entrada"], r["saida"], r["alm_ini"], r["alm_fim"])
+              for r in linhas]
+        for dia, linhas in get_escala_semana().items()
+    })
+
+
+_carregar_escalas()
 
 
 def _get_status(eventos: dict, t_pre: int) -> str:
@@ -814,3 +829,138 @@ async def config_pacientes_remover(request: Request, paciente_id: int):
         return RedirectResponse("/configuracao/pacientes", status_code=303)
     erro = "Este paciente já tem sessão registrada no painel — o histórico não pode ser apagado." if p else None
     return RedirectResponse("/configuracao/pacientes?" + urlencode({"erro": erro or ""}), status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Configuração — escala da equipe (a capacidade do dia sai daqui)
+# ---------------------------------------------------------------------------
+def _hhmm(v) -> Optional[int]:
+    """'07:30' → 450 minutos; vazio ou inválido → None."""
+    try:
+        hh, mm = (v or "").strip().split(":")[:2]
+        return int(hh) * 60 + int(mm)
+    except ValueError:
+        return None
+
+
+def _render_escala(request: Request, dia: int, erro: Optional[str] = None, ok: Optional[str] = None,
+                   status_code: int = 200):
+    semana = get_escala_semana()
+    escala_dia = scheduler._escala_do_dia(dia)
+    por_hora = [
+        {
+            "hora":       _fmt(hh * 60),
+            "tecnico":    scheduler.capacidade_puncao(hh * 60, escala_dia),
+            "enfermeiro": scheduler.capacidade_qt(hh * 60, escala_dia),
+            "limpeza":    scheduler._presentes(escala_dia, "limpeza", hh * 60),
+        }
+        for hh in range(scheduler.DIA_INI // 60, scheduler.DIA_FIM // 60)
+    ]
+    return templates.TemplateResponse(request, "config_escala.html", {
+        "dia":        dia,
+        "dias":       scheduler.DIAS_SEMANA,
+        "tetos":      [capacidade_do_dia(dia_semana=d)["teto"] for d in range(7)],
+        "linhas":     semana[dia],
+        "funcoes":    scheduler.FUNCOES,
+        "cap_dia":    capacidade_do_dia(dia_semana=dia),
+        "por_hora":   por_hora,
+        "fmt":        _fmt,
+        "erro":       erro,
+        "ok":         ok,
+    }, status_code=status_code)
+
+
+def _ler_profissional(form) -> tuple[Optional[tuple], Optional[str]]:
+    funcao  = form.get("funcao")
+    entrada = _hhmm(form.get("entrada"))
+    saida   = _hhmm(form.get("saida"))
+    alm_ini = _hhmm(form.get("alm_ini"))
+    alm_fim = _hhmm(form.get("alm_fim"))
+    if funcao not in scheduler.FUNCOES:
+        return None, "Escolha a função."
+    if entrada is None or saida is None:
+        return None, "Informe o horário de entrada e de saída."
+    if saida <= entrada:
+        return None, "A saída precisa ser depois da entrada."
+    if (alm_ini is None) != (alm_fim is None):
+        return None, "Informe o início e o fim do intervalo (ou deixe os dois em branco)."
+    if alm_ini is None:
+        alm_ini = alm_fim = entrada          # sem intervalo
+    elif not (entrada <= alm_ini < alm_fim <= saida):
+        return None, "O intervalo precisa estar dentro do turno, com o fim depois do início."
+    return (funcao, entrada, saida, alm_ini, alm_fim), None
+
+
+def _dia_valido(dia) -> int:
+    try:
+        d = int(dia)
+    except (TypeError, ValueError):
+        return 0
+    return d if 0 <= d <= 6 else 0
+
+
+def _volta_escala(dia: int, ok: str):
+    return RedirectResponse(f"/configuracao/escala?dia={dia}&" + urlencode({"ok": ok}), status_code=303)
+
+
+@app.get("/configuracao/escala", response_class=HTMLResponse)
+async def config_escala_get(request: Request, dia: Optional[str] = Query(default=None),
+                            ok: Optional[str] = Query(default=None)):
+    return _render_escala(request, _dia_valido(dia if dia is not None else date.today().weekday()), ok=ok)
+
+
+@app.post("/configuracao/escala/{dia}/profissional")
+async def config_escala_adicionar(request: Request, dia: int):
+    dia = _dia_valido(dia)
+    valores, erro = _ler_profissional(await request.form())
+    if erro:
+        return _render_escala(request, dia, erro=erro, status_code=422)
+    salvar_profissional(None, dia, *valores)
+    _carregar_escalas()
+    registrar_log("escala:adicionar", _usuario(request), detalhes=f"dia:{dia} {valores}")
+    return _volta_escala(dia, "Profissional adicionado.")
+
+
+@app.post("/configuracao/escala/profissional/{prof_id}")
+async def config_escala_editar(request: Request, prof_id: int):
+    form = await request.form()
+    dia = _dia_valido(form.get("dia"))
+    valores, erro = _ler_profissional(form)
+    if erro:
+        return _render_escala(request, dia, erro=erro, status_code=422)
+    salvar_profissional(prof_id, dia, *valores)
+    _carregar_escalas()
+    registrar_log("escala:editar", _usuario(request), detalhes=f"id:{prof_id} dia:{dia} {valores}")
+    return _volta_escala(dia, "Alteração salva.")
+
+
+@app.post("/configuracao/escala/profissional/{prof_id}/remover")
+async def config_escala_remover(request: Request, prof_id: int, dia: str = Form("0")):
+    dia = _dia_valido(dia)
+    remover_profissional(prof_id)
+    _carregar_escalas()
+    registrar_log("escala:remover", _usuario(request), detalhes=f"id:{prof_id} dia:{dia}")
+    return _volta_escala(dia, "Profissional removido.")
+
+
+@app.post("/configuracao/escala/{dia}/copiar")
+async def config_escala_copiar(request: Request, dia: int):
+    dia = _dia_valido(dia)
+    form = await request.form()
+    destinos = sorted({_dia_valido(d) for d in form.getlist("destinos")} - {dia})
+    if not destinos:
+        return _render_escala(request, dia, erro="Marque pelo menos um dia para receber a cópia.", status_code=422)
+    copiar_escala(dia, destinos)
+    _carregar_escalas()
+    registrar_log("escala:copiar", _usuario(request), detalhes=f"de:{dia} para:{destinos}")
+    nomes = ", ".join(scheduler.DIAS_SEMANA[d] for d in destinos)
+    return _volta_escala(dia, f"Escala copiada para: {nomes}.")
+
+
+@app.post("/configuracao/escala/{dia}/restaurar")
+async def config_escala_restaurar(request: Request, dia: int):
+    dia = _dia_valido(dia)
+    restaurar_escala_padrao(dia)
+    _carregar_escalas()
+    registrar_log("escala:restaurar", _usuario(request), detalhes=f"dia:{dia}")
+    return _volta_escala(dia, "Escala padrão restaurada.")

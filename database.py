@@ -65,7 +65,31 @@ def init_db():
                 registrado_em TEXT DEFAULT (datetime('now', 'localtime')),
                 UNIQUE(data, parametro)
             );
+
+            -- Escala da equipe por dia da semana (0=seg … 6=dom), horários em minutos
+            CREATE TABLE IF NOT EXISTS escala (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dia_semana INTEGER NOT NULL,
+                funcao TEXT NOT NULL,
+                entrada INTEGER NOT NULL,
+                saida INTEGER NOT NULL,
+                alm_ini INTEGER NOT NULL,
+                alm_fim INTEGER NOT NULL
+            );
+
+            -- Ajustes editados pela tela Configuração (chave → valor)
+            CREATE TABLE IF NOT EXISTS configuracao (
+                chave TEXT PRIMARY KEY,
+                valor TEXT NOT NULL
+            );
         """)
+
+        # Primeira execução: semeia a escala com o padrão do scheduler
+        if not db.execute("SELECT 1 FROM configuracao WHERE chave='escala_inicializada'").fetchone():
+            from scheduler import ESCALA_PADRAO
+            for dia, profissionais in ESCALA_PADRAO.items():
+                _inserir_escala(db, dia, profissionais)
+            db.execute("INSERT INTO configuracao (chave, valor) VALUES ('escala_inicializada', '1')")
 
         # Migração incremental — adiciona colunas se não existirem
         _migracoes = [
@@ -87,6 +111,13 @@ def init_db():
                 db.execute(sql)
             except Exception:
                 pass  # coluna já existe
+
+
+def _inserir_escala(db, dia: int, profissionais):
+    db.executemany(
+        "INSERT INTO escala (dia_semana, funcao, entrada, saida, alm_ini, alm_fim) VALUES (?,?,?,?,?,?)",
+        [(dia, p.funcao, p.entrada, p.saida, p.alm_ini, p.alm_fim) for p in profissionais],
+    )
 
 
 @contextmanager
@@ -366,6 +397,62 @@ def remover_paciente(paciente_id: int) -> bool:
         return True
 
 
+# ---------------------------------------------------------------------------
+# Escala da equipe (tela Configuração → Escala)
+# ---------------------------------------------------------------------------
+
+def get_escala_semana() -> dict:
+    """{dia_semana: [linha, ...]} com as 7 chaves, ordenado por função e entrada."""
+    semana = {d: [] for d in range(7)}
+    with get_db() as db:
+        for r in db.execute("SELECT * FROM escala ORDER BY dia_semana, funcao, entrada, id"):
+            semana[r["dia_semana"]].append(dict(r))
+    return semana
+
+
+def salvar_profissional(prof_id: int | None, dia: int, funcao: str,
+                        entrada: int, saida: int, alm_ini: int, alm_fim: int):
+    with get_db() as db:
+        if prof_id:
+            db.execute(
+                "UPDATE escala SET funcao=?, entrada=?, saida=?, alm_ini=?, alm_fim=? WHERE id=?",
+                (funcao, entrada, saida, alm_ini, alm_fim, prof_id),
+            )
+        else:
+            db.execute(
+                "INSERT INTO escala (dia_semana, funcao, entrada, saida, alm_ini, alm_fim) VALUES (?,?,?,?,?,?)",
+                (dia, funcao, entrada, saida, alm_ini, alm_fim),
+            )
+
+
+def remover_profissional(prof_id: int):
+    with get_db() as db:
+        db.execute("DELETE FROM escala WHERE id=?", (prof_id,))
+
+
+def copiar_escala(origem: int, destinos: list):
+    """Substitui a escala de cada dia em destinos pela do dia origem."""
+    with get_db() as db:
+        linhas = db.execute(
+            "SELECT funcao, entrada, saida, alm_ini, alm_fim FROM escala WHERE dia_semana=?", (origem,)
+        ).fetchall()
+        for d in destinos:
+            if d == origem:
+                continue
+            db.execute("DELETE FROM escala WHERE dia_semana=?", (d,))
+            db.executemany(
+                "INSERT INTO escala (dia_semana, funcao, entrada, saida, alm_ini, alm_fim) VALUES (?,?,?,?,?,?)",
+                [(d, *tuple(l)) for l in linhas],
+            )
+
+
+def restaurar_escala_padrao(dia: int):
+    from scheduler import ESCALA_PADRAO
+    with get_db() as db:
+        db.execute("DELETE FROM escala WHERE dia_semana=?", (dia,))
+        _inserir_escala(db, dia, ESCALA_PADRAO[dia])
+
+
 def reagendar(ag_id: int, nova_data: str):
     """Move agendamento para nova data preservando histórico de ciclo."""
     with get_db() as db:
@@ -436,15 +523,14 @@ def get_historico_paciente(paciente_id: int) -> dict:
         }
 
 
-N_AGENDADO = 20
-
-
 def proxima_data_com_vaga(paciente_id: int, a_partir: str, intervalo_dias: int) -> str | None:
     """
-    Retorna a primeira data >= a_partir com vaga no pool agendado.
+    Retorna a primeira data >= a_partir com vaga no pool agendado do dia
+    (derivado da escala — dia sem equipe não tem vaga).
     Retorna None se não encontrar em 60 dias.
     """
     from datetime import date, timedelta
+    from scheduler import capacidade_do_dia
     inicio = date.fromisoformat(a_partir)
     candidata = inicio
     for _ in range(60):
@@ -454,7 +540,7 @@ def proxima_data_com_vaga(paciente_id: int, a_partir: str, intervalo_dias: int) 
                 SELECT COUNT(*) FROM agendamentos
                 WHERE data_sessao=? AND status NOT IN ('cancelado')
             """, (data_str,)).fetchone()[0]
-        if ocupadas < N_AGENDADO:
+        if ocupadas < capacidade_do_dia(dia_semana=candidata.weekday())["n_agendado"]:
             return data_str
         candidata += timedelta(days=1)
     return None

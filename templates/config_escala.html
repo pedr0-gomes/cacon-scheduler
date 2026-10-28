@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Escala — Configuração — CACON{% endblock %}
+
+{% block content %}
+{% include "_config_nav.html" %}
+
+<style>
+  .dia-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 20px; }
+  .dia-tabs a {
+    padding: 8px 14px; border-radius: 8px; text-decoration: none; font-size: 14px;
+    font-weight: 600; color: #374151; background: #fff; border: 1.5px solid #e5e7eb; text-align: center;
+  }
+  .dia-tabs a small { display: block; font-size: 11px; font-weight: 600; color: #6b7280; }
+  .dia-tabs a.ativo { border-color: #1a1a2e; background: #1a1a2e; color: #fff; }
+  .dia-tabs a.ativo small { color: #cbd5e1; }
+  .tabela-escala td { padding: 6px 8px; }
+  .tabela-escala input[type=time] { padding: 7px 8px; min-width: 96px; }
+  .tabela-escala select { padding: 7px 8px; min-width: 220px; }
+  .hora-grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .hora-grid th, .hora-grid td { padding: 6px 8px; text-align: center; border-bottom: 1px solid #f3f4f6; }
+  .hora-grid th { color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+  .hora-grid td.zero { color: #d1d5db; }
+</style>
+
+<div class="ajuda">
+  <strong>A escala da equipe define quantos pacientes cabem no dia.</strong>
+  O sistema calcula o teto e os horários de chegada a partir de quem está trabalhando em cada horário.
+  <ul>
+    <li>Escolha o dia da semana, ajuste os horários de cada profissional e clique em <strong>Salvar</strong> na linha.</li>
+    <li>Mudou alguém de horário, entrou ou saiu gente da equipe? Edite aqui — vale na hora: o teto e os horários de chegada sugeridos são recalculados.</li>
+    <li>Um dos técnicos do salão fica sempre na montagem da droga: o sistema já desconta, cadastre todos os técnicos normalmente.</li>
+    <li>Dia sem ninguém na escala = setor fechado: o sistema não agenda retorno nesse dia.</li>
+  </ul>
+</div>
+
+{% if ok %}<div class="aviso-ok">✓ {{ ok }}</div>{% endif %}
+{% if erro %}<div class="aviso-erro">{{ erro }}</div>{% endif %}
+
+<div class="dia-tabs">
+  {% for nome in dias %}
+    <a href="/configuracao/escala?dia={{ loop.index0 }}" class="{% if loop.index0 == dia %}ativo{% endif %}">
+      {{ nome }}<small>{% if tetos[loop.index0] %}teto {{ tetos[loop.index0] }}{% else %}fechado{% endif %}</small>
+    </a>
+  {% endfor %}
+</div>
+
+<div class="vitals-bar">
+  <div class="vital-item"><div class="vital-num">{{ cap_dia.teto }}</div><div class="vital-label">Teto do dia</div></div>
+  <div class="vital-item"><div class="vital-num" style="color:#1e40af;">{{ cap_dia.n_agendado }}</div><div class="vital-label">Vagas agendadas</div></div>
+  <div class="vital-item"><div class="vital-num" style="color:#374151;">{{ cap_dia.n_walk_in }}</div><div class="vital-label">Vagas walk-in</div></div>
+  <div class="vital-item"><div class="vital-num" style="color:#6b7280;">{{ cap_dia.tecnico_horas }}</div><div class="vital-label">Técnico-horas de punção</div></div>
+</div>
+
+<div class="card">
+  <h2>Equipe de {{ dias[dia]|lower }} ({{ linhas|length }} profissionais)</h2>
+  <div style="overflow-x:auto;">
+  <table class="tabela-agenda tabela-escala">
+    <thead>
+      <tr><th>Função</th><th>Entrada</th><th>Saída</th><th>Intervalo — início</th><th>Intervalo — fim</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for l in linhas %}
+      <tr>
+        <td>
+          <form id="f{{ l.id }}" method="post" action="/configuracao/escala/profissional/{{ l.id }}"></form>
+          <input type="hidden" name="dia" value="{{ dia }}" form="f{{ l.id }}">
+          <select name="funcao" form="f{{ l.id }}">
+            {% for k, v in funcoes.items() %}<option value="{{ k }}" {% if l.funcao == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+          </select>
+        </td>
+        <td><input type="time" name="entrada" value="{{ fmt(l.entrada) }}" form="f{{ l.id }}" required></td>
+        <td><input type="time" name="saida" value="{{ fmt(l.saida) }}" form="f{{ l.id }}" required></td>
+        <td><input type="time" name="alm_ini" value="{% if l.alm_fim > l.alm_ini %}{{ fmt(l.alm_ini) }}{% endif %}" form="f{{ l.id }}"></td>
+        <td><input type="time" name="alm_fim" value="{% if l.alm_fim > l.alm_ini %}{{ fmt(l.alm_fim) }}{% endif %}" form="f{{ l.id }}"></td>
+        <td style="white-space:nowrap;">
+          <button type="submit" form="f{{ l.id }}" class="btn btn-primary btn-sm">Salvar</button>
+          <form method="post" action="/configuracao/escala/profissional/{{ l.id }}/remover" style="display:inline;">
+            <input type="hidden" name="dia" value="{{ dia }}">
+            <button type="submit" class="btn btn-ghost btn-sm" style="color:#ef4444;">Remover</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">Ninguém na escala deste dia — setor fechado.</td></tr>
+      {% endfor %}
+
+      <tr style="background:#f9fafb;">
+        <td>
+          <form id="fnovo" method="post" action="/configuracao/escala/{{ dia }}/profissional"></form>
+          <select name="funcao" form="fnovo">
+            {% for k, v in funcoes.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+          </select>
+        </td>
+        <td><input type="time" name="entrada" form="fnovo" required></td>
+        <td><input type="time" name="saida" form="fnovo" required></td>
+        <td><input type="time" name="alm_ini" form="fnovo"></td>
+        <td><input type="time" name="alm_fim" form="fnovo"></td>
+        <td><button type="submit" form="fnovo" class="btn btn-primary btn-sm">+ Adicionar</button></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="dica" style="margin-top:10px;">Intervalo em branco = profissional sem pausa no turno. Turno partido (ex.: higienização) = cadastre a pausa longa como intervalo.</p>
+</div>
+
+<div class="card">
+  <h2>Quem está disponível em cada hora</h2>
+  <p class="dica" style="margin:-8px 0 12px;">Resultado da escala acima — é isso que o sistema usa para distribuir as chegadas.</p>
+  <div style="overflow-x:auto;">
+  <table class="hora-grid">
+    <thead>
+      <tr><th style="text-align:left;">Papel</th>{% for h in por_hora %}<th>{{ h.hora[:2] }}h</th>{% endfor %}</tr>
+    </thead>
+    <tbody>
+      <tr><td style="text-align:left;">Técnicos para punção</td>{% for h in por_hora %}<td class="{% if not h.tecnico %}zero{% endif %}">{{ h.tecnico }}</td>{% endfor %}</tr>
+      <tr><td style="text-align:left;">Enfermeiros para QT</td>{% for h in por_hora %}<td class="{% if not h.enfermeiro %}zero{% endif %}">{{ h.enfermeiro }}</td>{% endfor %}</tr>
+      <tr><td style="text-align:left;">Higienização</td>{% for h in por_hora %}<td class="{% if not h.limpeza %}zero{% endif %}">{{ h.limpeza }}</td>{% endfor %}</tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Copiar ou restaurar</h2>
+  <form method="post" action="/configuracao/escala/{{ dia }}/copiar" style="margin-bottom:16px;">
+    <label>Copiar a escala de {{ dias[dia]|lower }} para:</label>
+    <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-top:6px;">
+      {% for nome in dias %}{% if loop.index0 != dia %}
+        <label style="display:flex; align-items:center; gap:6px; font-weight:500; margin:0; cursor:pointer;">
+          <input type="checkbox" name="destinos" value="{{ loop.index0 }}"> {{ nome }}
+        </label>
+      {% endif %}{% endfor %}
+      <button type="submit" class="btn btn-ghost btn-sm"
+        onclick="return confirm('A escala dos dias marcados será substituída pela de {{ dias[dia]|lower }}. Continuar?');">Copiar</button>
+    </div>
+  </form>
+  <form method="post" action="/configuracao/escala/{{ dia }}/restaurar">
+    <button type="submit" class="btn btn-ghost btn-sm"
+      onclick="return confirm('Voltar a escala de {{ dias[dia]|lower }} para o padrão original do sistema?');">Restaurar escala padrão de {{ dias[dia]|lower }}</button>
+  </form>
+</div>
+{% endblock %}

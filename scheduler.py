@@ -70,15 +70,16 @@ def h(hora: int, minuto: int = 0) -> int:
 
 # ===========================================================================
 # 2. ESCALA DE PROFISSIONAIS  (a fonte da capacidade)
-#    Calibrar a capacidade = editar esta lista, não recomputar curvas.
-#    Escala real levantada com a farmacêutica em 09/set (ver CONTEXT §Escala real).
+#    A escala em uso vem do banco e é editada na tela Configuração → Escala.
+#    As listas abaixo são o PADRÃO: semeiam o banco na primeira execução e são
+#    o destino do botão "Restaurar padrão". Escala real levantada em set/2026.
 # ===========================================================================
 
 @dataclass(frozen=True)
 class Profissional:
     """Um profissional num turno. funcao define de que pool ele participa.
     Disponível em t se está dentro do turno e fora do intervalo de 1h."""
-    funcao: str          # enfermeiro | enfermeiro_triagem | tecnico | tecnico_hemato | limpeza
+    funcao: str          # chave de FUNCOES
     entrada: int
     saida: int
     alm_ini: int         # início do intervalo de 1h
@@ -119,12 +120,34 @@ def _sexta(escala: List[Profissional]) -> List[Profissional]:
 
 ESCALA_SEX = _sexta(ESCALA_SEGQUI)
 
+# Função → rótulo na tela. Define de que pool o profissional participa.
+FUNCOES = {
+    "tecnico":            "Técnico(a) do salão — punção e pré-QT",
+    "tecnico_hemato":     "Técnico(a) da hematologia",
+    "enfermeiro":         "Enfermeiro(a) — QT e retirada",
+    "enfermeiro_triagem": "Enfermeiro(a) da triagem",
+    "limpeza":            "Higienização",
+}
+
+DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+
+# Padrão por dia da semana (0=seg … 6=dom). Fim de semana sem equipe = sem sessões.
+ESCALA_PADRAO = {0: ESCALA_SEGQUI, 1: ESCALA_SEGQUI, 2: ESCALA_SEGQUI, 3: ESCALA_SEGQUI,
+                 4: ESCALA_SEX, 5: [], 6: []}
+
+# Escala em uso — o app carrega do banco com definir_escalas()
+ESCALAS = dict(ESCALA_PADRAO)
+
+
+def definir_escalas(escalas: dict) -> None:
+    """Substitui a escala em uso: {dia_semana: [Profissional, ...]}."""
+    ESCALAS.clear()
+    ESCALAS.update({d: list(escalas.get(d, [])) for d in range(7)})
+
 
 def _escala_do_dia(dia_semana: Optional[int]) -> List[Profissional]:
-    """dia_semana: 0=seg … 6=dom (date.weekday()). 4=sex tem escala reduzida."""
-    if dia_semana == 4:
-        return ESCALA_SEX
-    return ESCALA_SEGQUI
+    """dia_semana: 0=seg … 6=dom (date.weekday()). None = segunda."""
+    return ESCALAS.get(0 if dia_semana is None else dia_semana, [])
 
 
 def _presentes(escala: List[Profissional], funcao: str, t: int) -> int:
@@ -135,7 +158,7 @@ def capacidade_puncao(t: int, escala: Optional[List[Profissional]] = None) -> in
     """Técnicos disponíveis para punção no minuto t.
     = técnicos de salão presentes − 1 (sempre na montagem) − lanche.
     (hemato é pool à parte; nunca entrou aqui.)"""
-    escala = escala or ESCALA_SEGQUI
+    escala = _escala_do_dia(None) if escala is None else escala
     pool = _presentes(escala, "tecnico", t)
     if pool >= 1:
         pool -= 1  # 1 técnico sempre dedicado à montagem
@@ -145,7 +168,7 @@ def capacidade_puncao(t: int, escala: Optional[List[Profissional]] = None) -> in
 def capacidade_qt(t: int, escala: Optional[List[Profissional]] = None) -> int:
     """Enfermeiros disponíveis para iniciar QT no minuto t.
     Triagem não conta (dedicada ao sistema). 0 antes das 7h → restrição 3 emerge."""
-    escala = escala or ESCALA_SEGQUI
+    escala = _escala_do_dia(None) if escala is None else escala
     pool = _presentes(escala, "enfermeiro", t)
     return max(0, pool)
 
@@ -173,11 +196,11 @@ def capacidade_do_dia(escala: Optional[List[Profissional]] = None, dia_semana: O
     }
 
 
-# --- Compatibilidade: STAFF_CURVE derivada da escala (bandas visuais da triagem) ---
+# --- Curva de punção derivada da escala (bandas visuais da triagem) ---
 def _derivar_curva(escala: Optional[List[Profissional]] = None) -> list:
     """Agrupa capacidade_puncao(t) em janelas de valor constante → (ini, fim, n).
     Alimenta a UI antiga (capacidade_por_janela) com a curva REAL, não 4/4/2/4."""
-    escala = escala or ESCALA_SEGQUI
+    escala = _escala_do_dia(None) if escala is None else escala
     curva, ini, atual = [], DIA_INI, capacidade_puncao(DIA_INI, escala)
     for t in range(DIA_INI + 1, DIA_FIM + 1):
         n = capacidade_puncao(t, escala) if t < DIA_FIM else None
@@ -187,18 +210,10 @@ def _derivar_curva(escala: Optional[List[Profissional]] = None) -> list:
     return curva
 
 
-STAFF_CURVE = _derivar_curva()
-
-
 def curva_do_dia(dia_semana: Optional[int] = None) -> list:
     """Curva de pool de punção derivada da escala do dia (sexta sai 1h mais cedo).
     dia_semana: 0=seg … 6=dom (date.weekday())."""
     return _derivar_curva(_escala_do_dia(dia_semana))
-
-# Referência de carga por papel no painel (pico realista da escala Seg–Qui).
-# Candidato a virar dinâmico por janela (hoje é um teto único para a barra).
-STAFF_REFERENCIA = {"tecnico": 7, "enfermeiro": 3, "limpeza": 2}
-
 
 def staff_agora(t: int, dia_semana: Optional[int] = None) -> dict:
     """Pool disponível de cada papel no minuto t do dia. dia_semana: 0=seg…6=dom."""
@@ -216,13 +231,13 @@ def staff_em(t: int, curve=None) -> int:
 
 
 def e_janela_reduzida(t: int, curve=None) -> bool:
-    pico = max((n for _, _, n in STAFF_CURVE), default=0)
+    pico = max((n for _, _, n in curva_do_dia()), default=0)
     return capacidade_puncao(t) < pico
 
 
 def capacidade_por_janela(curve=None) -> list:
     """Descreve cada janela de staff com sua capacidade (duração_h × pool)."""
-    curve = curve or STAFF_CURVE
+    curve = curve or curva_do_dia()
     result = []
     for inicio, fim, staff in curve:
         duracao_h = (fim - inicio) / 60
@@ -476,7 +491,8 @@ def gerar_escala(
     Punção simultânea ≤ pool técnico e QT simultânea ≤ pool enfermeiro são
     garantidas pelos contadores por minuto (restrições 1,2).
     """
-    escala = escala or _escala_do_dia(dia_semana)
+    if escala is None:
+        escala = _escala_do_dia(dia_semana)
     n = len(pacientes)
     if n == 0:
         return []
