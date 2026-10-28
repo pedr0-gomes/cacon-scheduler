@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Parâmetros — Configuração — CACON{% endblock %}
+
+{% block content %}
+{% include "_config_nav.html" %}
+
+<style>
+  .param-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+  .param-item label { font-weight: 600; }
+  .param-item.alterado input { border-color: #f59e0b; background: #fffbeb; }
+  .teto-semana { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .teto-semana th, .teto-semana td { padding: 8px 10px; text-align: center; border-bottom: 1px solid #f3f4f6; }
+  .teto-semana th { color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+</style>
+
+<div class="ajuda">
+  <strong>Parâmetros que o sistema usa para calcular o dia.</strong>
+  Os valores iniciais são estimativas. Depois de 2–4 semanas de uso, compare o teto calculado com o realizado no
+  <a href="/relatorio">Relatório</a> e ajuste aqui.
+  <ul>
+    <li>O que mais muda o teto do dia é <strong>Punções por técnico por hora</strong>: teto alto demais → diminua; equipe ociosa → aumente.</li>
+    <li>Campo em amarelo = diferente do padrão. Embaixo de cada campo aparece o valor padrão; <strong>Restaurar padrões</strong> volta tudo.</li>
+  </ul>
+</div>
+
+{% if ok %}<div class="aviso-ok">✓ {{ ok }}</div>{% endif %}
+{% if erro %}<div class="aviso-erro">{{ erro }}</div>{% endif %}
+
+<div class="card">
+  <h2>Teto resultante por dia da semana</h2>
+  <div style="overflow-x:auto;">
+  <table class="teto-semana">
+    <thead><tr><th></th>{% for d in dias %}<th>{{ d[:3] }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      <tr><td style="text-align:left;">Teto do dia</td>{% for c in caps %}<td><strong>{{ c.teto or '—' }}</strong></td>{% endfor %}</tr>
+      <tr><td style="text-align:left;">Vagas agendadas</td>{% for c in caps %}<td>{{ c.n_agendado or '—' }}</td>{% endfor %}</tr>
+      <tr><td style="text-align:left;">Vagas walk-in</td>{% for c in caps %}<td>{{ c.n_walk_in or '—' }}</td>{% endfor %}</tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="dica" style="margin-top:8px;">{{ n_poltronas }} poltronas no total · convênio: {{ faixa_conv }}. Dia com “—” não tem equipe na <a href="/configuracao/escala">escala</a>.</p>
+</div>
+
+<form method="post" action="/configuracao/parametros">
+  {% for grupo, itens in grupos.items() %}
+  <div class="card">
+    <h2>{{ grupo }}</h2>
+    {% if grupo == 'Poltronas' %}
+      <p class="dica" style="margin:-8px 0 14px;">Numeração em sequência: primeiro as SUS, depois as de convênio, depois as da hematologia. Paciente de convênio só senta nas de convênio.</p>
+    {% endif %}
+    <div class="param-grid">
+      {% for p in itens %}
+      <div class="param-item {% if p.alterado %}alterado{% endif %}">
+        <label for="p_{{ p.nome }}">{{ p.rotulo }}{% if p.tipo == 'pct' %} (%){% endif %}</label>
+        {% if p.tipo == 'hora' %}
+          <input type="time" id="p_{{ p.nome }}" name="{{ p.nome }}" value="{{ p.valor }}" required>
+        {% else %}
+          <input type="number" id="p_{{ p.nome }}" name="{{ p.nome }}" value="{{ p.valor }}"
+            step="{% if p.tipo == 'float' %}0.01{% else %}1{% endif %}" required>
+        {% endif %}
+        <div class="dica">Padrão: {{ p.padrao }}{% if p.tipo == 'pct' %}%{% endif %}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+  <div style="display:flex; gap:8px; justify-content:flex-end; margin-bottom:24px;">
+    <button type="submit" class="btn btn-primary">Salvar parâmetros</button>
+  </div>
+</form>
+
+<form method="post" action="/configuracao/parametros/restaurar" style="text-align:right;">
+  <button type="submit" class="btn btn-ghost btn-sm"
+    onclick="return confirm('Voltar todos os parâmetros para o padrão do sistema?');">Restaurar padrões</button>
+</form>
+{% endblock %}

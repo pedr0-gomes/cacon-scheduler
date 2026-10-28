@@ -453,6 +453,31 @@ def restaurar_escala_padrao(dia: int):
         _inserir_escala(db, dia, ESCALA_PADRAO[dia])
 
 
+# ---------------------------------------------------------------------------
+# Parâmetros editáveis (tela Configuração → Parâmetros)
+# ---------------------------------------------------------------------------
+
+def get_parametros() -> dict:
+    """{nome: valor em texto} só dos parâmetros alterados pela tela."""
+    with get_db() as db:
+        rows = db.execute("SELECT chave, valor FROM configuracao WHERE chave LIKE 'param:%'").fetchall()
+    return {r["chave"][6:]: r["valor"] for r in rows}
+
+
+def salvar_parametros(valores: dict):
+    """Grava {nome: valor}; None apaga (volta ao padrão)."""
+    with get_db() as db:
+        for nome, valor in valores.items():
+            if valor is None:
+                db.execute("DELETE FROM configuracao WHERE chave=?", (f"param:{nome}",))
+            else:
+                db.execute(
+                    "INSERT INTO configuracao (chave, valor) VALUES (?, ?) "
+                    "ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor",
+                    (f"param:{nome}", str(valor)),
+                )
+
+
 def reagendar(ag_id: int, nova_data: str):
     """Move agendamento para nova data preservando histórico de ciclo."""
     with get_db() as db:

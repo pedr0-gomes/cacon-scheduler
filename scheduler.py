@@ -22,7 +22,9 @@ import math
 
 # ===========================================================================
 # 1. ESTIMATIVAS CALIBRÁVEIS
-#    Todas iniciais — o sistema mede e refina. Um lugar só para ajustar.
+#    Todas iniciais — o sistema mede e refina. Os valores abaixo são o PADRÃO;
+#    os listados em PARAMETROS são editáveis na tela Configuração → Parâmetros
+#    (gravados no banco e aplicados com aplicar_parametros()).
 # ===========================================================================
 
 # --- Tempos (minutos) ---
@@ -53,8 +55,11 @@ TAXA_NAO_CONFIRMACAO = 0.20  # % que não confirma em D-1 (libera slot walk-in)
 TAXA_REACAO_ADVERSA  = 0.08  # 5–10% — margem operacional
 RAZAO_WALK_IN        = 0.20  # fração da capacidade reservada ao dia (walk-in)
 
-# --- Poltronas ---
-N_POLTRONAS = 34             # 1–25 SUS, 26–30 convênio, 31–34 hemato
+# --- Poltronas (numeradas em sequência: SUS, depois convênio, depois hemato) ---
+N_POLTRONAS_SUS      = 25    # 1–25
+N_POLTRONAS_CONVENIO = 5     # 26–30 — paciente de convênio só senta aqui
+N_POLTRONAS_HEMATO   = 4     # 31–34
+N_POLTRONAS = N_POLTRONAS_SUS + N_POLTRONAS_CONVENIO + N_POLTRONAS_HEMATO
 
 # --- Janela do dia (minutos desde 0h) ---
 DIA_INI        = 6 * 60      # 06:00 — abertura
@@ -66,6 +71,55 @@ HORA_MIN_QT    = 7 * 60      # 07:00 — nenhuma QT inicia antes (redundante c/ 
 def h(hora: int, minuto: int = 0) -> int:
     """Minutos desde 0h. Açúcar para escrever a escala legível."""
     return hora * 60 + minuto
+
+
+# --- Editáveis pela tela: nome → (grupo, rótulo, tipo, mínimo, máximo) ---
+# tipo: int | float | pct (guardado como fração, exibido em %) | hora (minutos, exibido HH:MM)
+PARAMETROS = {
+    "N_POLTRONAS_SUS":          ("Poltronas", "Poltronas SUS", "int", 0, 200),
+    "N_POLTRONAS_CONVENIO":     ("Poltronas", "Poltronas de convênio", "int", 0, 200),
+    "N_POLTRONAS_HEMATO":       ("Poltronas", "Poltronas da hematologia", "int", 0, 200),
+    "PUNCOES_POR_TECNICO_HORA": ("Capacidade", "Punções por técnico por hora", "float", 0.1, 10),
+    "RAZAO_WALK_IN":            ("Capacidade", "Vagas reservadas para walk-in", "pct", 0, 1),
+    "ULTIMA_CHEGADA":           ("Capacidade", "Horário da última punção do dia", "hora", h(7), h(19)),
+    "OFFSET_CHEGADA_HOSPITAL":  ("Tempos", "Antecedência pedida ao paciente (min antes da punção)", "int", 0, 300),
+    "T_PUNCAO":                 ("Tempos", "Duração da punção (min)", "int", 1, 120),
+    "T_2A_OFFSET":              ("Tempos", "Técnico volta ao paciente após a punção (min)", "int", 0, 240),
+    "T_2A_DUR":                 ("Tempos", "Duração dessa 2ª passagem do técnico (min)", "int", 0, 60),
+    "T_MONTAGEM":               ("Tempos", "Montagem da droga por paciente (min)", "int", 1, 120),
+    "T_ENF_INICIO_QT":          ("Tempos", "Enfermeiro inicia a QT (min)", "int", 1, 60),
+    "GAP_PRE_QT":               ("Tempos", "Fim da pré-QT → início da QT (min)", "int", 0, 120),
+    "GAP_SAIDA":                ("Tempos", "Fim da QT → paciente deixa a poltrona (min)", "int", 0, 120),
+    "T_HIGIENIZACAO":           ("Tempos", "Higienização da poltrona (min)", "int", 0, 60),
+}
+
+PARAMETROS_PADRAO = {k: globals()[k] for k in PARAMETROS}
+
+
+def aplicar_parametros(valores: dict) -> None:
+    """Aplica valores já validados (os ausentes voltam ao padrão)."""
+    global N_POLTRONAS
+    for k in PARAMETROS:
+        globals()[k] = valores.get(k, PARAMETROS_PADRAO[k])
+    N_POLTRONAS = N_POLTRONAS_SUS + N_POLTRONAS_CONVENIO + N_POLTRONAS_HEMATO
+
+
+def parametros_atuais() -> dict:
+    return {k: globals()[k] for k in PARAMETROS}
+
+
+def segmento(num: int) -> str:
+    """Rótulo do segmento da poltrona num (1-indexada)."""
+    if num <= N_POLTRONAS_SUS:
+        return "SUS"
+    if num <= N_POLTRONAS_SUS + N_POLTRONAS_CONVENIO:
+        return "Conv"
+    return "Hemato"
+
+
+def faixa_convenio() -> range:
+    """Índices (0-indexados) das poltronas de convênio."""
+    return range(N_POLTRONAS_SUS, N_POLTRONAS_SUS + N_POLTRONAS_CONVENIO)
 
 
 # ===========================================================================
@@ -466,8 +520,9 @@ def _chave_ordenacao(p):
 
 
 def _primeira_poltrona(disponivel: List[int], t: int, is_convenio: bool) -> Optional[int]:
-    """Índice da primeira poltrona livre em t, ou None. Convênio → 26–30 (idx 25–29)."""
-    indices = range(25, 30) if is_convenio else range(len(disponivel))
+    """Índice da primeira poltrona livre em t, ou None. Convênio → só as de convênio
+    (se o setor não tiver nenhuma, senta em qualquer uma)."""
+    indices = faixa_convenio() if (is_convenio and faixa_convenio()) else range(len(disponivel))
     for i in indices:
         if disponivel[i] <= t:
             return i
@@ -478,7 +533,7 @@ def gerar_escala(
     pacientes: List,
     escala: Optional[List[Profissional]] = None,
     dia_semana: Optional[int] = None,
-    n_poltronas: int = N_POLTRONAS,
+    n_poltronas: Optional[int] = None,
 ) -> List[Sessao]:
     """
     Para cada paciente (longos primeiro), acha o horário de chegada mais cedo
@@ -493,6 +548,8 @@ def gerar_escala(
     """
     if escala is None:
         escala = _escala_do_dia(dia_semana)
+    if n_poltronas is None:
+        n_poltronas = N_POLTRONAS
     n = len(pacientes)
     if n == 0:
         return []

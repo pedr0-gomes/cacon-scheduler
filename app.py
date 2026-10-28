@@ -18,11 +18,10 @@ from scheduler import (
     curva_do_dia, capacidade_por_janela, capacidade_do_dia, staff_agora,
     CARGA_POR_PAPEL,
     staff_em, _fmt,
-    DIA_INI, OFFSET_CHEGADA_HOSPITAL,
-    T_PUNCAO, T_2A_OFFSET, T_2A_DUR, T_MONTAGEM, T_HIGIENIZACAO,
-    T_ENF_INICIO_QT, GAP_PRE_QT, GAP_SAIDA,
-    PUNCOES_POR_TECNICO_HORA, TAXA_NAO_CONFIRMACAO, TAXA_REACAO_ADVERSA, RAZAO_WALK_IN,
+    DIA_INI, TAXA_NAO_CONFIRMACAO, TAXA_REACAO_ADVERSA,
 )
+# Parâmetros editáveis (tempos, vazão, poltronas) são lidos como scheduler.X na
+# hora do uso — mudam em tempo de execução pela tela Configuração → Parâmetros.
 from database import (
     init_db, get_dia, criar_agendamento,
     cancelar_agendamento, registrar_evento, desfazer_evento,
@@ -33,6 +32,7 @@ from database import (
     cadastrar_paciente, atualizar_paciente, remover_paciente,
     get_escala_semana, salvar_profissional, remover_profissional,
     copiar_escala, restaurar_escala_padrao,
+    get_parametros, salvar_parametros,
 )
 import scheduler
 
@@ -107,7 +107,6 @@ STATUS_LABEL = {
     "livre":                    "Livre",
 }
 
-SEGMENTO = {num: ("SUS" if num <= 25 else "Conv" if num <= 30 else "Hemato") for num in range(1, 35)}
 EVENTOS = ["punção", "pré-QT", "QT", "retirada", "higienização"]
 
 ROTAS_ABERTAS = {"/painel", "/registrar", "/desfazer", "/proxima", "/anotar", "/login", "/static"}
@@ -144,6 +143,47 @@ def _carregar_escalas():
 
 
 _carregar_escalas()
+
+
+def _hhmm(v) -> Optional[int]:
+    """'07:30' → 450 minutos; vazio ou inválido → None."""
+    try:
+        hh, mm = (v or "").strip().split(":")[:2]
+        return int(hh) * 60 + int(mm)
+    except ValueError:
+        return None
+
+
+def _converter_parametro(nome: str, texto) -> Optional[float]:
+    """Texto (do banco ou da tela) → valor no tipo do parâmetro; None se inválido."""
+    _, _, tipo, minimo, maximo = scheduler.PARAMETROS[nome]
+    texto = str(texto).strip().replace(",", ".")
+    try:
+        if tipo == "hora":
+            valor = _hhmm(texto)
+        elif tipo == "int":
+            valor = int(float(texto)) if float(texto).is_integer() else None
+        else:
+            valor = float(texto)
+    except ValueError:
+        return None
+    if valor is None or not (minimo <= valor <= maximo):
+        return None
+    return valor
+
+
+def _carregar_parametros():
+    """Parâmetros do banco → scheduler (os não gravados ficam no padrão)."""
+    valores = {}
+    for nome, texto in get_parametros().items():
+        if nome in scheduler.PARAMETROS:
+            v = _converter_parametro(nome, texto)
+            if v is not None:
+                valores[nome] = v
+    scheduler.aplicar_parametros(valores)
+
+
+_carregar_parametros()
 
 
 def _get_status(eventos: dict, t_pre: int) -> str:
@@ -209,6 +249,11 @@ async def logout(request: Request):
 # ---------------------------------------------------------------------------
 # Agenda (Triagem)
 # ---------------------------------------------------------------------------
+def _faixa_convenio_txt() -> str:
+    f = scheduler.faixa_convenio()
+    return f"poltronas {f.start + 1}–{f.stop}" if f else "sem poltrona exclusiva"
+
+
 @app.get("/", response_class=HTMLResponse)
 async def agenda_get(request: Request):
     data = str(date.today())
@@ -234,6 +279,7 @@ async def agenda_get(request: Request):
         "cap_dia":           cap_dia,
         "staff_curve_json":  json.dumps(bandas),
         "sessoes_json":      json.dumps([{"chegada": s.chegada} for s in sessoes]),
+        "faixa_convenio":    _faixa_convenio_txt(),
     })
 
 
@@ -325,7 +371,7 @@ async def painel_get(request: Request):
     pol_sessao = {s.poltrona: s for s in sessoes}
 
     poltronas = []
-    for num in range(1, 35):
+    for num in range(1, scheduler.N_POLTRONAS + 1):
         sessao = pol_sessao.get(num)
         if sessao:
             ag = ag_by_nome.get(sessao.paciente.nome, {})
@@ -340,7 +386,7 @@ async def painel_get(request: Request):
                 "ag":                ag,
                 "evs":               evs,
                 "status":            status,
-                "segmento":          SEGMENTO[num],
+                "segmento":          scheduler.segmento(num),
                 "evs_json":          json.dumps(evs),
                 "inter_str":         " · ".join(ag.get("intercorrencias", [])),
                 "intervalo_default": intervalo_default,
@@ -356,7 +402,7 @@ async def painel_get(request: Request):
                 "ag":                {},
                 "evs":               {},
                 "status":            "livre",
-                "segmento":          SEGMENTO[num],
+                "segmento":          scheduler.segmento(num),
                 "evs_json":          "{}",
                 "inter_str":         "",
                 "intervalo_default": 21,
@@ -507,7 +553,7 @@ async def lista_get(request: Request, dias: int = Query(default=7)):
         for ag in ag_list:
             sessao = sessao_por_nome.get(ag["nome"])
             if sessao:
-                chegada_h = max(DIA_INI, sessao.chegada - OFFSET_CHEGADA_HOSPITAL)
+                chegada_h = max(DIA_INI, sessao.chegada - scheduler.OFFSET_CHEGADA_HOSPITAL)
                 horario_chegada = _fmt(chegada_h)
             else:
                 horario_chegada = "—"
@@ -522,7 +568,7 @@ async def lista_get(request: Request, dias: int = Query(default=7)):
     return templates.TemplateResponse(request, "lista.html", {
         "registros":  registros,
         "dias":       dias,
-        "offset_h":   OFFSET_CHEGADA_HOSPITAL // 60,
+        "offset_h":   scheduler.OFFSET_CHEGADA_HOSPITAL // 60,
         "hoje":       str(hoje),
     })
 
@@ -543,7 +589,7 @@ async def lista_csv(request: Request, dias: int = Query(default=7)):
         for ag in ag_list:
             sessao = sessao_por_nome.get(ag["nome"])
             if sessao:
-                chegada_h = max(DIA_INI, sessao.chegada - OFFSET_CHEGADA_HOSPITAL)
+                chegada_h = max(DIA_INI, sessao.chegada - scheduler.OFFSET_CHEGADA_HOSPITAL)
                 horario_chegada = _fmt(chegada_h)
             else:
                 horario_chegada = ""
@@ -567,20 +613,21 @@ async def lista_csv(request: Request, dias: int = Query(default=7)):
 # Registros
 # ---------------------------------------------------------------------------
 def _parametros_list():
+    s = scheduler
     return [
-        ("T_PUNCAO",                "Duração da punção",                    T_PUNCAO,                "min"),
-        ("T_2A_OFFSET",             "Offset 2ª interação do técnico",        T_2A_OFFSET,             "min"),
-        ("T_2A_DUR",                "Duração 2ª interação",                  T_2A_DUR,                "min"),
-        ("T_MONTAGEM",              "Montagem da droga",                     T_MONTAGEM,              "min"),
-        ("T_HIGIENIZACAO",          "Higienização da poltrona",              T_HIGIENIZACAO,          "min"),
-        ("T_ENF_INICIO_QT",         "Enfermeiro inicia QT",                  T_ENF_INICIO_QT,         "min"),
-        ("GAP_PRE_QT",              "Gap pré-QT → QT",                       GAP_PRE_QT,              "min"),
-        ("GAP_SAIDA",               "Gap retirada → poltrona livre",         GAP_SAIDA,               "min"),
-        ("OFFSET_CHEGADA_HOSPITAL", "Antecedência informada ao paciente",    OFFSET_CHEGADA_HOSPITAL, "min"),
-        ("PUNCOES_POR_TECNICO_HORA","Vazão por técnico",                     PUNCOES_POR_TECNICO_HORA,"punções/h"),
+        ("T_PUNCAO",                "Duração da punção",                    s.T_PUNCAO,                "min"),
+        ("T_2A_OFFSET",             "Offset 2ª interação do técnico",        s.T_2A_OFFSET,             "min"),
+        ("T_2A_DUR",                "Duração 2ª interação",                  s.T_2A_DUR,                "min"),
+        ("T_MONTAGEM",              "Montagem da droga",                     s.T_MONTAGEM,              "min"),
+        ("T_HIGIENIZACAO",          "Higienização da poltrona",              s.T_HIGIENIZACAO,          "min"),
+        ("T_ENF_INICIO_QT",         "Enfermeiro inicia QT",                  s.T_ENF_INICIO_QT,         "min"),
+        ("GAP_PRE_QT",              "Gap pré-QT → QT",                       s.GAP_PRE_QT,              "min"),
+        ("GAP_SAIDA",               "Gap retirada → poltrona livre",         s.GAP_SAIDA,               "min"),
+        ("OFFSET_CHEGADA_HOSPITAL", "Antecedência informada ao paciente",    s.OFFSET_CHEGADA_HOSPITAL, "min"),
+        ("PUNCOES_POR_TECNICO_HORA","Vazão por técnico",                     s.PUNCOES_POR_TECNICO_HORA,"punções/h"),
         ("TAXA_NAO_CONFIRMACAO",    "Taxa de não-confirmação D-1",           round(TAXA_NAO_CONFIRMACAO * 100, 1), "%"),
         ("TAXA_REACAO_ADVERSA",     "Taxa de reação adversa",                round(TAXA_REACAO_ADVERSA  * 100, 1), "%"),
-        ("RAZAO_WALK_IN",           "Fração walk-in sobre a capacidade",     round(RAZAO_WALK_IN        * 100, 1), "%"),
+        ("RAZAO_WALK_IN",           "Fração walk-in sobre a capacidade",     round(s.RAZAO_WALK_IN      * 100, 1), "%"),
     ]
 
 
@@ -598,7 +645,7 @@ async def relatorio_get(request: Request, data: str = Query(default=None)):
         "obs":           obs,
         "data":          data,
         "hoje":          str(date.today()),
-        "RAZAO_WALK_IN": RAZAO_WALK_IN,
+        "RAZAO_WALK_IN": scheduler.RAZAO_WALK_IN,
     })
 
 
@@ -834,15 +881,6 @@ async def config_pacientes_remover(request: Request, paciente_id: int):
 # ---------------------------------------------------------------------------
 # Configuração — escala da equipe (a capacidade do dia sai daqui)
 # ---------------------------------------------------------------------------
-def _hhmm(v) -> Optional[int]:
-    """'07:30' → 450 minutos; vazio ou inválido → None."""
-    try:
-        hh, mm = (v or "").strip().split(":")[:2]
-        return int(hh) * 60 + int(mm)
-    except ValueError:
-        return None
-
-
 def _render_escala(request: Request, dia: int, erro: Optional[str] = None, ok: Optional[str] = None,
                    status_code: int = 200):
     semana = get_escala_semana()
@@ -964,3 +1002,90 @@ async def config_escala_restaurar(request: Request, dia: int):
     _carregar_escalas()
     registrar_log("escala:restaurar", _usuario(request), detalhes=f"dia:{dia}")
     return _volta_escala(dia, "Escala padrão restaurada.")
+
+
+# ---------------------------------------------------------------------------
+# Configuração — parâmetros do algoritmo e poltronas
+# ---------------------------------------------------------------------------
+def _valor_exibido(nome: str, valor) -> str:
+    tipo = scheduler.PARAMETROS[nome][2]
+    if tipo == "pct":
+        return f"{valor * 100:g}"
+    if tipo == "hora":
+        return _fmt(valor)
+    return f"{valor:g}"
+
+
+def _render_parametros(request: Request, erro: Optional[str] = None, ok: Optional[str] = None,
+                       digitado: Optional[dict] = None, status_code: int = 200):
+    atuais = scheduler.parametros_atuais()
+    grupos: dict = {}
+    for nome, (grupo, rotulo, tipo, minimo, maximo) in scheduler.PARAMETROS.items():
+        grupos.setdefault(grupo, []).append({
+            "nome":     nome,
+            "rotulo":   rotulo,
+            "tipo":     tipo,
+            "valor":    (digitado or {}).get(nome, _valor_exibido(nome, atuais[nome])),
+            "padrao":   _valor_exibido(nome, scheduler.PARAMETROS_PADRAO[nome]),
+            "alterado": atuais[nome] != scheduler.PARAMETROS_PADRAO[nome],
+        })
+    return templates.TemplateResponse(request, "config_parametros.html", {
+        "grupos":      grupos,
+        "dias":        scheduler.DIAS_SEMANA,
+        "caps":        [capacidade_do_dia(dia_semana=d) for d in range(7)],
+        "n_poltronas": scheduler.N_POLTRONAS,
+        "faixa_conv":  _faixa_convenio_txt(),
+        "erro":        erro,
+        "ok":          ok,
+    }, status_code=status_code)
+
+
+@app.get("/configuracao/parametros", response_class=HTMLResponse)
+async def config_parametros_get(request: Request, ok: Optional[str] = Query(default=None)):
+    return _render_parametros(request, ok=ok)
+
+
+@app.post("/configuracao/parametros")
+async def config_parametros_salvar(request: Request):
+    form = await request.form()
+    digitado = {nome: str(form.get(nome, "")).strip() for nome in scheduler.PARAMETROS}
+    valores, invalidos = {}, []
+    for nome, texto in digitado.items():
+        if scheduler.PARAMETROS[nome][2] == "pct":   # tela em %, guardado como fração
+            try:
+                texto = str(float(texto.replace(",", ".")) / 100)
+            except ValueError:
+                texto = ""
+        v = _converter_parametro(nome, texto)
+        if v is None:
+            invalidos.append(scheduler.PARAMETROS[nome][1])
+        else:
+            valores[nome] = v
+    total = sum(valores.get(k, 0) for k in ("N_POLTRONAS_SUS", "N_POLTRONAS_CONVENIO", "N_POLTRONAS_HEMATO"))
+    if invalidos:
+        erro = "Valor inválido ou fora do limite em: " + "; ".join(invalidos) + "."
+    elif total < 1:
+        erro = "O setor precisa ter pelo menos uma poltrona."
+    else:
+        erro = None
+    if erro:
+        return _render_parametros(request, erro=erro, digitado=digitado, status_code=422)
+    # Grava só o que difere do padrão: o resto continua acompanhando o padrão do código
+    salvar_parametros({
+        nome: (None if v == scheduler.PARAMETROS_PADRAO[nome]
+               else _fmt(v) if scheduler.PARAMETROS[nome][2] == "hora" else v)
+        for nome, v in valores.items()
+    })
+    _carregar_parametros()
+    alterados = {k: v for k, v in valores.items() if v != scheduler.PARAMETROS_PADRAO[k]}
+    registrar_log("parametros:salvar", _usuario(request), detalhes=json.dumps(alterados))
+    return RedirectResponse("/configuracao/parametros?" + urlencode({"ok": "Parâmetros salvos."}), status_code=303)
+
+
+@app.post("/configuracao/parametros/restaurar")
+async def config_parametros_restaurar(request: Request):
+    salvar_parametros({nome: None for nome in scheduler.PARAMETROS})
+    _carregar_parametros()
+    registrar_log("parametros:restaurar", _usuario(request))
+    return RedirectResponse("/configuracao/parametros?" + urlencode({"ok": "Parâmetros padrão restaurados."}),
+                            status_code=303)
