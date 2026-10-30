@@ -58,6 +58,7 @@ No modal, preencha:
 | Protocolo | Sim | Escolha da lista ou "Outro protocolo..." para protocolo fora da lista |
 | Data da sessão | Sim | Trava em hoje para walk-in |
 | Total de ciclos | Recomendado | Necessário para o agendamento automático de retorno |
+| Ciclos já feitos | Se já estava em tratamento | Só vale para paciente novo no sistema; sem ele a contagem começa do zero. Para quem já tem cadastro, corrija em Configuração → Pacientes → Editar |
 | Número de prontuário | Recomendado | |
 | Telefone | Recomendado | |
 | Nome da mãe + data de nascimento | Recomendado | Dois identificadores para segurança da identificação |

@@ -202,7 +202,10 @@ def criar_agendamento(
     pre_override, qt_override_min, intervalo_ciclo_dias, data_sessao,
     is_convenio=False, flexibilidade="alta", municipio=None, ordem_medica=0,
     total_ciclos=None, num_prontuario=None, telefone=None, cor_qt_override=None,
+    ciclos_previos=0,
 ) -> int:
+    """ciclos_previos só vale para paciente novo: num cadastro existente a contagem
+    já vem do cadastro + das retiradas registradas (corrigir em Configuração)."""
     with get_db() as db:
         existing_pac = db.execute(
             "SELECT id FROM pacientes WHERE nome = ?", (nome,)
@@ -230,12 +233,12 @@ def criar_agendamento(
                     (nome, nome_mae, data_nascimento, protocolo,
                      pre_override, qt_override_min, intervalo_ciclo_dias,
                      total_ciclos, is_convenio, flexibilidade, municipio,
-                     num_prontuario, telefone, cor_qt_override)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     num_prontuario, telefone, cor_qt_override, ciclos_previos)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (nome, nome_mae, data_nascimento, protocolo,
                   pre_override, qt_override_min, intervalo_ciclo_dias,
                   total_ciclos, int(is_convenio), flexibilidade, municipio,
-                  num_prontuario, telefone, cor_qt_override))
+                  num_prontuario, telefone, cor_qt_override, ciclos_previos or 0))
             pac_id = cur.lastrowid
 
         existing_ag = db.execute(

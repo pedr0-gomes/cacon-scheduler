@@ -330,6 +330,11 @@
           <input type="number" id="m_total_ciclos" name="total_ciclos"
             min="1" max="100" style="width:100%;" placeholder="Ex.: 4">
         </div>
+        <div class="field" id="m_previos-field" style="display:none;">
+          <label for="m_ciclos_previos">Ciclos já feitos</label>
+          <input type="number" id="m_ciclos_previos" name="ciclos_previos"
+            min="0" max="100" style="width:100%;" placeholder="Só se já estava em tratamento">
+        </div>
       </div>
 
       <!-- Campos do protocolo personalizado (visível apenas quando "outro" selecionado) -->
@@ -398,6 +403,7 @@
   var intervaloField = document.getElementById('m_intervalo-field');
   var intervaloInput = document.getElementById('m_intervalo_ciclo_dias');
   var ciclosField    = document.getElementById('m_ciclos-field');
+  var previosField   = document.getElementById('m_previos-field');
 
   var customFields = document.getElementById('m_protocolo_custom_fields');
 
@@ -412,7 +418,7 @@
       qtInput.value = '';
       intervaloField.style.display = '';
       intervaloInput.value = '';
-      ciclosField.style.display = '';
+      ciclosField.style.display = ''; previosField.style.display = '';
       return;
     }
 
@@ -426,7 +432,7 @@
     else          { qtField.style.display = 'none'; }
     if (intervalo){ intervaloInput.value = intervalo; intervaloField.style.display = ''; }
     else          { intervaloField.style.display = 'none'; }
-    ciclosField.style.display = '';
+    ciclosField.style.display = ''; previosField.style.display = '';
   });
 
   var nasc = document.getElementById('m_data_nascimento');
