@@ -28,6 +28,7 @@ from database import (
     adicionar_intercorrencia, agendar_proxima, get_horizonte,
     duracao_mediana_qt, registrar_log, get_logs,
     get_relatorio_dia, salvar_observacoes_dia, get_observacoes_dia,
+    get_sessoes_concluidas,
     listar_pacientes, get_paciente, paciente_por_nome,
     cadastrar_paciente, atualizar_paciente, remover_paciente,
     get_escala_semana, salvar_profissional, remover_profissional,
@@ -677,6 +678,61 @@ def _parametros_list():
     ]
 
 
+MIN_AMOSTRA_TEMPOS = 5   # abaixo disso o relatório avisa "poucos dados"
+
+
+def _duracao(ev: dict, ini: str, fim: str) -> Optional[int]:
+    """Minutos entre dois eventos; None se faltar um ou o intervalo não fizer sentido
+    (esquecimento de registro gera zero, negativo ou horas)."""
+    a, b = _min(ev.get(ini)), _min(ev.get(fim))
+    if a is None or b is None:
+        return None
+    d = b - a
+    return d if 0 < d <= 600 else None
+
+
+def _mediana(valores: list) -> Optional[int]:
+    if not valores:
+        return None
+    v = sorted(valores)
+    meio = len(v) // 2
+    return v[meio] if len(v) % 2 else round((v[meio - 1] + v[meio]) / 2)
+
+
+def _planejado_x_real() -> list:
+    """Por protocolo, em todo o histórico: pré-QT e QT planejados × a mediana do que
+    foi registrado no painel (pré-QT → QT, QT → retirada). Só leitura: não altera
+    nenhum parâmetro nem o scheduler."""
+    por_prot: dict = {}
+    for s in get_sessoes_concluidas():
+        try:
+            pac = _make_paciente(s)
+        except ValueError:
+            continue
+        ev = s["eventos"]
+        g = por_prot.setdefault(s["protocolo"], {"pre_p": [], "pre_r": [], "qt_p": [], "qt_r": []})
+        pre = _duracao(ev, "pré-QT", "QT")
+        qt  = _duracao(ev, "QT", "retirada")
+        if pre is not None:
+            g["pre_p"].append(pac.t_pre); g["pre_r"].append(pre)
+        if qt is not None:
+            g["qt_p"].append(pac.t_qt);   g["qt_r"].append(qt)
+
+    linhas = []
+    for prot, g in por_prot.items():
+        n_pre, n_qt = len(g["pre_r"]), len(g["qt_r"])
+        if not (n_pre or n_qt):
+            continue
+        linha = {"protocolo": prot, "label": PROTOCOLO_LABEL.get(prot, prot), "n_pre": n_pre, "n_qt": n_qt}
+        for k in ("pre", "qt"):
+            plan, real = _mediana(g[f"{k}_p"]), _mediana(g[f"{k}_r"])
+            linha[f"{k}_plan"], linha[f"{k}_real"] = plan, real
+            linha[f"{k}_dif"] = (real - plan) if (plan is not None and real is not None) else None
+        linha["poucos"] = min(n for n in (n_pre, n_qt) if n) < MIN_AMOSTRA_TEMPOS
+        linhas.append(linha)
+    return sorted(linhas, key=lambda l: -max(l["n_pre"], l["n_qt"]))
+
+
 @app.get("/relatorio", response_class=HTMLResponse)
 async def relatorio_get(request: Request, data: str = Query(default=None)):
     if not data:
@@ -685,6 +741,8 @@ async def relatorio_get(request: Request, data: str = Query(default=None)):
     stats   = get_relatorio_dia(data)
     obs     = get_observacoes_dia(data)
     return templates.TemplateResponse(request, "relatorio.html", {
+        "tempos":        _planejado_x_real(),
+        "min_amostra":   MIN_AMOSTRA_TEMPOS,
         "parametros":    _parametros_list(),
         "cap_dia":       cap_dia,
         "stats":         stats,
@@ -731,6 +789,11 @@ async def relatorio_csv(request: Request, data: str = Query(default=None)):
     w.writerow(["Teto do dia",             cap_dia["teto"]])
     w.writerow(["Pool agendado",           cap_dia["n_agendado"]])
     w.writerow(["Pool walk-in",            cap_dia["n_walk_in"]])
+    w.writerow([])
+    w.writerow(["TEMPOS POR PROTOCOLO — PLANEJADO × REAL (todo o histórico, mediana em min)"])
+    w.writerow(["Protocolo", "Pré-QT planejado", "Pré-QT real", "Pré-QT n", "QT planejado", "QT real", "QT n"])
+    for t in _planejado_x_real():
+        w.writerow([t["label"], t["pre_plan"], t["pre_real"], t["n_pre"], t["qt_plan"], t["qt_real"], t["n_qt"]])
     w.writerow([])
     w.writerow(["PARÂMETROS OPERACIONAIS"])
     w.writerow(["Variável", "Descrição", "Valor atual", "Unidade", "Observação do dia"])

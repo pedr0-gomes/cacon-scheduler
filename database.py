@@ -735,6 +735,28 @@ def agendar_proxima(paciente_id: int, data_proxima: str, intervalo_dias: int) ->
     return {"status": "agendado", "data": data_disponivel}
 
 
+def get_sessoes_concluidas() -> list:
+    """Todas as sessões com retirada registrada: campos que definem o tempo planejado
+    + eventos (tipo → 'HH:MM'). Base do relatório planejado × real por protocolo."""
+    with get_db() as db:
+        rows = db.execute("""
+            SELECT a.id AS ag_id, p.nome, p.protocolo, p.pre_override,
+                   p.qt_override_min, p.cor_qt_override, p.flexibilidade, p.is_convenio
+            FROM agendamentos a
+            JOIN pacientes p ON p.id = a.paciente_id
+            WHERE a.status != 'cancelado'
+              AND EXISTS (SELECT 1 FROM eventos e WHERE e.agendamento_id = a.id AND e.tipo = 'retirada')
+        """).fetchall()
+        result = []
+        for r in rows:
+            evs = db.execute(
+                "SELECT tipo, registrado_em FROM eventos WHERE agendamento_id = ? ORDER BY id",
+                (r["ag_id"],)
+            ).fetchall()
+            result.append({**dict(r), "eventos": {e["tipo"]: e["registrado_em"] for e in evs}})
+        return result
+
+
 def registrar_log(acao: str, usuario: str, agendamento_id: int = None, detalhes: str = None):
     with get_db() as db:
         db.execute(

@@ -140,6 +140,8 @@ O relatório mostra:
 
 **O scheduler não é uma ordem.** Os horários sugeridos são pontos de partida; a equipe continua decidindo na prática. O valor do sistema está no nivelamento do fluxo ao longo do dia, não em controlar cada detalhe.
 
+**Tempos planejados × reais.** O relatório (`/relatorio`) tem a tabela *Tempos por protocolo*: para cada protocolo, o pré-QT e o QT planejados ao lado da mediana do que a equipe registrou no painel, com o número de sessões e a diferença. Serve só para olhar — nada ali muda o agendamento. Com menos de 5 sessões, trate como indício. Para a tabela fazer sentido, registre as etapas **pré-QT, QT e retirada** no painel; sem elas a sessão não entra na conta. Quando os números se firmarem, ajuste o tempo em Configuração → Parâmetros ou no cadastro do paciente.
+
 **Calibração ao longo do tempo.** Após 2–4 semanas de uso, compare o teto calculado com o total realizado no relatório. Se o teto calculado estiver muito acima do real, reduza **Punções por técnico por hora** em Configuração → Parâmetros.
 
 **Walk-in esgotou as vagas.** Se o pool walk-in estiver cheio e chegar um paciente com ordem médica, o sistema permite o cadastro e o scheduler move o agendado com `flexibilidade = alta` para acomodar.

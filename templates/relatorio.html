@@ -96,6 +96,52 @@
 </div>
 {% endif %}
 
+<!-- ═══ TEMPOS: PLANEJADO × REAL ═══════════════════════════════════ -->
+<div class="card" style="margin-bottom:24px;">
+  <h2>Tempos por protocolo: planejado × real</h2>
+  <p style="font-size:13px; color:#6b7280; margin-top:4px;">
+    Todo o histórico registrado no painel (não só o dia escolhido). O <strong>real</strong> é a mediana do que a equipe
+    marcou: pré-QT até o início do QT, e QT até a retirada. É só leitura — nada aqui muda o agendamento.
+    Para ajustar um tempo, use <a href="/configuracao/parametros">Configuração → Parâmetros</a> ou edite o paciente.
+  </p>
+  {% if tempos %}
+  <table class="tabela-agenda">
+    <thead>
+      <tr>
+        <th>Protocolo</th>
+        <th colspan="4" style="text-align:center;">Pré-QT (min)</th>
+        <th colspan="4" style="text-align:center;">QT (min)</th>
+      </tr>
+      <tr>
+        <th></th>
+        <th>Plan.</th><th>Real</th><th>Dif.</th><th>Sessões</th>
+        <th>Plan.</th><th>Real</th><th>Dif.</th><th>Sessões</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in tempos %}
+      <tr>
+        <td>{{ t.label }}{% if t.poucos %} <span style="color:#b45309; font-size:12px;" title="Menos de {{ min_amostra }} sessões: ainda não é confiável">· poucos dados</span>{% endif %}</td>
+        <td>{{ t.pre_plan if t.pre_plan is not none else '—' }}</td>
+        <td><strong>{{ t.pre_real if t.pre_real is not none else '—' }}</strong></td>
+        <td>{% if t.pre_dif is not none %}{{ '%+d' % t.pre_dif }}{% else %}—{% endif %}</td>
+        <td>{{ t.n_pre }}</td>
+        <td>{{ t.qt_plan if t.qt_plan is not none else '—' }}</td>
+        <td><strong>{{ t.qt_real if t.qt_real is not none else '—' }}</strong></td>
+        <td>{% if t.qt_dif is not none %}{{ '%+d' % t.qt_dif }}{% else %}—{% endif %}</td>
+        <td>{{ t.n_qt }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p style="font-size:12px; color:#6b7280; margin-top:8px;">
+    Dif. positiva = demorou mais que o planejado. "Sessões" = quantas tiveram os dois registros. Com menos de {{ min_amostra }} sessões, trate como indício, não como padrão.
+  </p>
+  {% else %}
+  <p class="empty">Ainda não há sessões com os registros necessários (pré-QT, QT e retirada marcados no painel).</p>
+  {% endif %}
+</div>
+
 <!-- ═══ CAPACIDADE DO DIA ══════════════════════════════════════════ -->
 <div class="card" style="margin-bottom:24px;">
   <h2>Capacidade calculada</h2>
