@@ -1,5 +1,7 @@
 # Modelagem do Problema de Alocação — CACON
 
+> **Histórico.** Descreve o scheduler automático da primeira versão (set/2026). Desde nov/2026 ele não é usado nas telas: a equipe escolhe horário e poltrona, e o sistema registra e mede (ver README → Histórico). O código continua em `scheduler.py`.
+
 ## Entrada (D-1)
 Lista de N pacientes agendados: protocolo, duração estimada, flexibilidade, convênio/SUS/hemato.
 Dia da semana (define horizonte: 6h–18h seg–qui · 6h–17h sex).

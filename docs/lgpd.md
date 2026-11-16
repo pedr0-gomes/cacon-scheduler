@@ -43,8 +43,8 @@ O contrato entre controlador e operador deve ser formalizado antes de qualquer d
 ## Medidas técnicas implementadas
 
 - **Banco local:** SQLite no servidor do hospital — dados nunca saem da rede local
-- **Autenticação:** login com senha para as rotas de triagem; painel sem login (tablet compartilhado, decisão de usabilidade)
-- **Log de auditoria:** todas as ações de escrita são registradas com usuário (`triagem` ou `painel`), agendamento e horário — acessível em `/auditoria`
+- **Autenticação:** login com senha em todas as telas, exceto o **Salão** (`/painel`), que fica sem login por ser o tablet compartilhado da equipe (decisão de usabilidade)
+- **Log de auditoria:** todas as ações de escrita são registradas com a origem (`triagem` = telas com login, `painel` = Salão), agendamento e horário — acessível em Configuração → Auditoria
 - **Backup com rotação:** `backup.py` mantém 30 cópias; backups devem ficar no mesmo servidor ou em mídia controlada pelo hospital
 
 ---

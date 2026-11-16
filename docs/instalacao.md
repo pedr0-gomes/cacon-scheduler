@@ -96,20 +96,22 @@ http://<IP-do-servidor>:8001
 
 ## 6. Primeira configuração (pela tela, sem mexer no código)
 
-Tudo que precisa ser ajustado ao seu centro é feito em **Configuração** (menu superior, exige o login da triagem). Faça nesta ordem:
+Tudo que precisa ser ajustado ao seu centro fica em **⚙ Configuração** (canto direito do menu; pede a senha). Nesta ordem:
 
-1. **Escala da equipe** (`/configuracao/escala`) — confira, para cada dia da semana, quem trabalha e em que horário. O sistema vem com uma escala de exemplo (seg–sex; sábado e domingo fechados). A capacidade do dia é calculada a partir dela.
-2. **Parâmetros** (`/configuracao/parametros`) — número de poltronas (SUS, convênio, hematologia) e, se quiser, os tempos e a vazão. Os valores padrão servem para começar.
-3. **Pacientes** (`/configuracao/pacientes`) — cadastre os pacientes que já estão em tratamento, a partir das fichas: nome, protocolo, data da próxima sessão e quantos ciclos já foram feitos. Botão **Salvar e cadastrar o próximo** para ir em sequência.
+1. **Parâmetros** (`/configuracao/parametros`) — número de poltronas (SUS, convênio, hematologia) e os tempos de cada etapa. Os tempos formam o **previsto** do Relatório; os valores padrão servem para começar.
+2. **Pacientes** (`/configuracao/pacientes`) — cadastre quem já está em tratamento, a partir das fichas: nome, protocolo, data da próxima sessão, quantos ciclos já foram feitos e, se souber, o horário. **Salvar e cadastrar o próximo** para ir em sequência.
+3. **Escala da equipe** (`/configuracao/escala`) — opcional. É só registro de quem trabalha em cada dia; não limita a agenda nem a quantidade de pacientes.
 
-Depois da carga inicial, os pacientes novos entram pelo **+ Walk-in** da Triagem, e os retornos são agendados pelo Painel ou pelo Horizonte.
+Depois da carga inicial, o dia a dia acontece nas quatro telas do menu (Hoje, Salão, Agenda, Relatório) — ver [`uso.md`](uso.md). Pacientes novos entram pelo **+ Walk-in** (em Hoje, para o mesmo dia) ou pelo **+ Agendar paciente novo** (na Agenda, para um dia futuro).
 
 **Campos recomendados no cadastro:**
 - Número de prontuário (facilita busca)
-- Telefone (facilita contato para confirmação)
-- Nome da mãe + data de nascimento (identidade segura, dois identificadores — ANVISA RDC 220/2004)
+- Telefone (para a confirmação de presença)
+- Nome da mãe + data de nascimento (dois identificadores — ANVISA RDC 220/2004)
 
-> **LGPD:** o banco contém dados de saúde (dado sensível, Art. 11 LGPD). Leia o `docs/lgpd.md` antes de qualquer dado real entrar no sistema.
+**Para testar antes dos dados reais:** `uv run python seed.py` cria pacientes fictícios (ontem concluído, hoje em andamento, próximos dias na Agenda). Num servidor que vai receber dados reais, rode o seed só numa cópia de teste.
+
+> **LGPD:** o banco contém dados de saúde (dado sensível, Art. 11 LGPD). Leia o [`lgpd.md`](lgpd.md) antes de qualquer dado real entrar no sistema.
 
 ---
 
@@ -149,7 +151,7 @@ Conteúdo (ajuste os caminhos e o usuário):
 
 ```ini
 [Unit]
-Description=CACON CACON
+Description=CACON Scheduler
 After=network.target
 
 [Service]
@@ -180,13 +182,13 @@ O sistema usa SQLite por padrão — adequado para o volume do CACON. Se o hospi
 
 ---
 
-## 10. Calibração do scheduler
+## 10. Ajustar os tempos previstos
 
-Escala e parâmetros são editados pela tela **Configuração** (ver §6) e ficam gravados no banco — não é preciso editar `scheduler.py` nem reiniciar o servidor. Os valores em `scheduler.py` são apenas o **padrão** usado na primeira execução e pelos botões "Restaurar padrão".
+Os tempos de cada etapa ficam em **Configuração → Parâmetros** e no cadastro de cada paciente (pré-QT e QT). Ficam gravados no banco — não é preciso editar código nem reiniciar o servidor. Os valores em `scheduler.py` são só o **padrão** da primeira execução e dos botões "Restaurar padrão".
 
-O parâmetro que mais move o teto do dia é **Punções por técnico por hora**. Após 2–4 semanas de uso real, compare o teto calculado com o realizado no `/relatorio` e ajuste em Configuração → Parâmetros.
+Depois de 2–4 semanas de uso, abra o **Relatório → Média por protocolo**: ele mostra quanto cada protocolo leva de verdade. Ajuste os tempos para o previsto ficar perto do real.
 
-> Rode o servidor com **um único processo** (o comando do §5, sem `--workers`): a escala e os parâmetros ficam em memória e são recarregados do banco a cada alteração.
+> Rode o servidor com **um único processo** (o comando do §5, sem `--workers`): os parâmetros ficam em memória e são recarregados do banco a cada alteração.
 
 ---
 
@@ -201,3 +203,14 @@ sudo systemctl restart cacon   # ou pare e rode de novo o comando do §5
 ```
 
 O banco (`cacon.db`) é preservado: tabelas e colunas novas são criadas automaticamente no start, sem apagar dados.
+
+### Atualização de novembro/2026 — o que muda para quem usa
+
+Esta versão troca o agendamento automático pela gestão manual. **Nenhum dado se perde**; o que muda na tela:
+
+- **Menu com quatro telas:** Hoje (era Triagem), Salão (era Painel), Agenda (era Lista; absorveu Confirmação e Horizonte) e Relatório. A Configuração fica no canto direito. Endereços antigos (`/confirmacao`, `/horizonte`) levam à Agenda.
+- **Ninguém é mais limitado:** sem teto de pacientes por dia, sem vagas de walk-in, sem horário proibido. Horário e poltrona são escolhidos pela equipe.
+- **Horário na Agenda, poltrona em Hoje.** Os pacientes já cadastrados aparecem na Agenda **sem horário** (campo em amarelo) — marque o horário de cada um. No dia, eles aparecem em Hoje, em *Aguardando poltrona*.
+- **Relatório:** mostra o tempo de cada paciente, previsto → real, por etapa. Para funcionar, o Salão precisa registrar punção, pré-QT, QT e retirada.
+- Guia completo: [`uso.md`](uso.md).
+

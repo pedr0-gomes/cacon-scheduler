@@ -1,5 +1,7 @@
 # Mapeamento Protocolos → Cor (bucket de duração de QT)
 
+> **Uso atual (nov/2026):** estes valores são o padrão dos tempos de cada protocolo, que formam o **previsto** do Relatório. A equipe ajusta em Configuração → Parâmetros ou no cadastro do paciente.
+
 > **O que é este documento.** Lookup table para popular `t_qt[p]` no algoritmo de
 > sequenciamento. Mapeia os principais protocolos usados em CACON brasileiro às cores
 > (buckets de duração de QT) definidas pelos dados do centro.

@@ -1,5 +1,7 @@
 # Mapeamento Pré-med → Duração (t_pre[p])
 
+> **Uso atual (nov/2026):** estes valores são o padrão dos tempos de cada protocolo, que formam o **previsto** do Relatório. A equipe ajusta em Configuração → Parâmetros ou no cadastro do paciente.
+
 > **O que é este documento.** Lookup table para `t_pre[p]` no algoritmo de sequenciamento.
 > Mapeia os principais protocolos à duração estimada de pré-medicação (tempo sentado na
 > poltrona antes da QT começar).
