@@ -541,31 +541,24 @@ async def proxima_sessao(
 # ---------------------------------------------------------------------------
 # Confirmação de presença (D-1)
 # ---------------------------------------------------------------------------
-@app.get("/confirmacao", response_class=HTMLResponse)
-async def confirmacao_get(request: Request):
-    from datetime import timedelta
-    data = str(date.today() + timedelta(days=1))
-    ag_list = sorted(get_dia(data), key=lambda a: (a.get("horario") is None, a.get("horario") or 0, a["nome"]))
-    return templates.TemplateResponse(request, "confirmacao.html", {
-        "pacientes":   ag_list,
-        "data":        data,
-        "hoje":        str(date.today()),
-        "fmt":         _fmt,
-        "labels":      PROTOCOLO_LABEL,
-    })
+@app.get("/confirmacao")
+async def confirmacao_get():
+    # A confirmação de presença agora é feita na própria Agenda
+    return RedirectResponse("/lista", status_code=303)
 
 
 @app.post("/confirmar/{ag_id}")
-async def confirmar(request: Request, ag_id: int, valor: str = Form(...), data_sessao: str = Form(...)):
+async def confirmar(request: Request, ag_id: int, valor: Optional[str] = Form(None), dias: int = Form(7)):
     from database import get_db
+    valor = valor if valor in ("sim", "nao") else None   # vazio = volta para pendente
     with get_db() as db:
         db.execute("UPDATE agendamentos SET confirmado=? WHERE id=?", (valor, ag_id))
-    registrar_log(f"confirmar:{valor}", _usuario(request), agendamento_id=ag_id)
-    return RedirectResponse(f"/confirmacao?data={data_sessao}", status_code=303)
+    registrar_log(f"confirmar:{valor or 'pendente'}", _usuario(request), agendamento_id=ag_id)
+    return RedirectResponse(f"/lista?dias={dias}#ag-{ag_id}", status_code=303)
 
 
 # ---------------------------------------------------------------------------
-# Agendamento direto pelo horizonte (triagem)
+# Agendar quem está esperando (quadro no topo da Agenda)
 # ---------------------------------------------------------------------------
 @app.post("/agendar/{paciente_id}")
 async def agendar_pelo_horizonte(
@@ -573,36 +566,24 @@ async def agendar_pelo_horizonte(
     paciente_id: int,
     data_proxima: str = Form(...),
     intervalo_dias: int = Form(...),
-    qt_override_min: Optional[int] = Form(None),
-    dias: int = Form(default=30),
+    dias: int = Form(default=7),
     horario: Optional[str] = Form(None),
 ):
-    if qt_override_min:
-        from database import get_db
-        with get_db() as db:
-            db.execute(
-                "UPDATE pacientes SET qt_override_min=? WHERE id=?",
-                (qt_override_min, paciente_id)
-            )
     resultado = agendar_proxima(paciente_id, data_proxima, intervalo_dias, _hhmm(horario))
     registrar_log(
         f"agendar_horizonte:{resultado['status']}", _usuario(request),
         detalhes=f"pac:{paciente_id} data:{resultado.get('data')}",
     )
-    return RedirectResponse(f"/horizonte?dias={dias}", status_code=303)
+    return RedirectResponse(f"/lista?dias={dias}", status_code=303)
 
 
 # ---------------------------------------------------------------------------
-# Horizonte de retornos
+# Horizonte de retornos (absorvido pela Agenda)
 # ---------------------------------------------------------------------------
-@app.get("/horizonte", response_class=HTMLResponse)
-async def horizonte_get(request: Request, dias: int = Query(default=30)):
-    pacientes = get_horizonte(dias)
-    return templates.TemplateResponse(request, "horizonte.html", {
-        "pacientes": pacientes,
-        "dias":      dias,
-        "labels":    PROTOCOLO_LABEL,
-    })
+@app.get("/horizonte")
+async def horizonte_get():
+    # Quem espera agendamento agora aparece no topo da Agenda
+    return RedirectResponse("/lista", status_code=303)
 
 
 # ---------------------------------------------------------------------------
@@ -642,6 +623,7 @@ def _dias_agendados(dias: int) -> list:
 async def lista_get(request: Request, dias: int = Query(default=7)):
     return templates.TemplateResponse(request, "lista.html", {
         "dias_lista": _dias_agendados(dias),
+        "aguardando": [p for p in get_horizonte(30) if p["situacao"] == "aguardando"],
         "labels":     PROTOCOLO_LABEL,
         "dias":       dias,
         "hoje":       str(date.today()),

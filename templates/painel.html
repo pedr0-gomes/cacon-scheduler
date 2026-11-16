@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Painel de Poltronas — CACON{% endblock %}
+{% block title %}Salão — CACON{% endblock %}
 
 {% block nav %}
 <nav>
   <span class="nav-brand">CACON</span>
-  <a href="/login" style="margin-left:auto; font-size:13px; color:#aab4c8;">Acesso Triagem</a>
+  <a href="/login" style="margin-left:auto; font-size:13px; color:#aab4c8;">Entrar no sistema</a>
 </nav>
 {% endblock %}
 
@@ -13,7 +13,7 @@
 {% set n_ocupadas = poltronas | length - n_livre %}
 
 <div style="margin-bottom:20px;">
-  <h1 style="margin-bottom:2px;">Painel de Poltronas</h1>
+  <h1 style="margin-bottom:2px;">Salão</h1>
   <p class="subtitulo" style="margin:0;">{{ data }} · Toque na poltrona para registrar a etapa</p>
 </div>
 
@@ -36,7 +36,7 @@
 {% if n_sem_poltrona %}
 <div class="card" style="margin-bottom:20px; padding:12px 18px; border-left:4px solid #eab308;">
   {{ n_sem_poltrona }} paciente(s) de hoje ainda sem horário ou poltrona —
-  <a href="/">alocar na Triagem</a>.
+  <a href="/">dar a poltrona em Hoje</a>.
 </div>
 {% endif %}
 
@@ -44,7 +44,7 @@
 <div class="card">
   <div class="empty">
     Nenhum paciente alocado em poltrona hoje.<br>
-    <a href="/" class="btn btn-primary" style="margin-top:16px; display:inline-flex;">← Ir para Triagem</a>
+    <a href="/" class="btn btn-primary" style="margin-top:16px; display:inline-flex;">← Ir para Hoje</a>
   </div>
 </div>
 {% endif %}
