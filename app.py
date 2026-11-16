@@ -12,13 +12,14 @@ import json
 
 from config import SENHA_TRIAGEM, SESSION_SECRET
 
+# Alocação manual (16/11): a triagem escolhe horário e poltrona; o algoritmo de
+# scheduler.gerar_escala fica no repositório mas não é chamado. Do scheduler só
+# se usam os tempos por protocolo, as poltronas e os parâmetros editáveis.
 from scheduler import (
-    gerar_escala, Paciente, PacienteManual,
+    Paciente, PacienteManual, Sessao,
     PROTOCOLO, QT_MIN, PRE_MIN, COR_PRIORIDADE, INTERVALO_CICLO,
-    curva_do_dia, capacidade_por_janela, capacidade_do_dia, staff_agora,
-    CARGA_POR_PAPEL,
-    staff_em, _fmt,
-    DIA_INI, TAXA_NAO_CONFIRMACAO, TAXA_REACAO_ADVERSA,
+    _fmt, TAXA_NAO_CONFIRMACAO, TAXA_REACAO_ADVERSA,
+    capacidade_do_dia,   # só nas telas de Configuração (informativo)
 )
 # Parâmetros editáveis (tempos, vazão, poltronas) são lidos como scheduler.X na
 # hora do uso — mudam em tempo de execução pela tela Configuração → Parâmetros.
@@ -33,7 +34,7 @@ from database import (
     cadastrar_paciente, atualizar_paciente, remover_paciente,
     get_escala_semana, salvar_profissional, remover_profissional,
     copiar_escala, restaurar_escala_padrao,
-    get_parametros, salvar_parametros, fixar_poltrona,
+    get_parametros, salvar_parametros, alocar,
 )
 import scheduler
 
@@ -230,28 +231,44 @@ def _eventos_min(ag: dict) -> dict:
     return {k.lower(): _min(v) for k, v in (ag.get("eventos") or {}).items()}
 
 
-def _build_dia(data_str: str, ao_vivo: bool = False):
-    """Escala do dia. ao_vivo (só vale para hoje): quem já foi puncionado fica na
-    poltrona gravada e quem ainda não começou nunca é sugerido para antes de agora."""
-    ag_list = get_dia(data_str)
-    if not ag_list:
-        return ag_list, []
-    dia_semana = date.fromisoformat(data_str).weekday()
-    if not (ao_vivo and data_str == str(date.today())):
-        return ag_list, gerar_escala([_make_paciente(ag) for ag in ag_list], dia_semana=dia_semana)
+def _sessao_alocada(ag: dict) -> Optional[Sessao]:
+    """Sessão a partir da alocação gravada pela triagem (horário + poltrona).
+    Os horários de pré-QT, QT e saída são só a previsão pelo tempo do protocolo."""
+    if ag.get("horario") is None or ag.get("poltrona") is None:
+        return None
+    pac = _make_paciente(ag)
+    inicio = ag["horario"]
+    inicio_qt = inicio + pac.t_pre + scheduler.GAP_PRE_QT
+    return Sessao(
+        paciente=pac, chegada=inicio, poltrona=ag["poltrona"],
+        inicio_pre=inicio, inicio_qt=inicio_qt, saida_est=inicio_qt + pac.t_qt + scheduler.GAP_SAIDA,
+    )
 
-    agora = datetime.now().hour * 60 + datetime.now().minute
-    iniciados, pendentes = [], []
-    for ag in ag_list:
-        ev = _eventos_min(ag)
-        if ev.get("punção") is not None:
-            iniciados.append(scheduler.EmAtendimento(
-                paciente=_make_paciente(ag), t_puncao=ev["punção"], poltrona=ag.get("poltrona"),
-                inicio_qt=ev.get("qt"), retirada=ev.get("retirada"), higienizacao=ev.get("higienização"),
-            ))
-        else:
-            pendentes.append(_make_paciente(ag))
-    return ag_list, gerar_escala(pendentes, dia_semana=dia_semana, agora=agora, em_atendimento=iniciados)
+
+def _build_dia(data_str: str, ao_vivo: bool = False):
+    """Agendamentos do dia + sessões montadas pela alocação manual (só os que já
+    têm horário e poltrona), ordenadas por horário. Sem regra, sem teto.
+    ao_vivo fica por compatibilidade com as chamadas antigas."""
+    ag_list = get_dia(data_str)
+    sessoes = [s for s in (_sessao_alocada(ag) for ag in ag_list) if s]
+    sessoes.sort(key=lambda s: (s.chegada, s.poltrona))
+    return ag_list, sessoes
+
+
+def _pendentes(ag_list: list) -> list:
+    """Agendamentos ainda sem horário ou sem poltrona."""
+    return [ag for ag in ag_list if ag.get("horario") is None or ag.get("poltrona") is None]
+
+
+def _sobreposicoes(sessoes: list) -> dict:
+    """nome → nomes com quem divide a poltrona em horário sobreposto (só aviso)."""
+    avisos: dict = {}
+    for i, a in enumerate(sessoes):
+        for b in sessoes[i + 1:]:
+            if a.poltrona == b.poltrona and a.chegada < b.saida_est and b.chegada < a.saida_est:
+                avisos.setdefault(a.paciente.nome, []).append(b.paciente.nome)
+                avisos.setdefault(b.paciente.nome, []).append(a.paciente.nome)
+    return avisos
 
 
 def _montar_poltronas(ag_list: list, sessoes: list) -> list:
@@ -328,16 +345,29 @@ def _faixa_convenio_txt() -> str:
     return f"poltronas {f.start + 1}–{f.stop}" if f else "sem poltrona exclusiva"
 
 
+def _opcoes_poltrona() -> list:
+    return [(n, scheduler.segmento(n)) for n in range(1, scheduler.N_POLTRONAS + 1)]
+
+
+def _data_valida(data: Optional[str]) -> str:
+    try:
+        return str(date.fromisoformat(data)) if data else str(date.today())
+    except ValueError:
+        return str(date.today())
+
+
 @app.get("/", response_class=HTMLResponse)
-async def agenda_get(request: Request):
-    data = str(date.today())
-    hoje = data
-    ag_list, sessoes = _build_dia(data, ao_vivo=True)
-    bandas  = capacidade_por_janela(curva_do_dia(date.today().weekday()))
-    cap_dia = capacidade_do_dia(dia_semana=date.today().weekday())
+async def agenda_get(request: Request, data: Optional[str] = Query(default=None)):
+    data = _data_valida(data)
+    hoje = str(date.today())
+    ag_list, sessoes = _build_dia(data)
     return templates.TemplateResponse(request, "agenda.html", {
         "pacientes":         ag_list,
         "sessoes":           sessoes,
+        "pendentes":         _pendentes(ag_list),
+        "sobreposicoes":     _sobreposicoes(sessoes),
+        "opcoes_poltrona":   _opcoes_poltrona(),
+        "e_hoje":            data == hoje,
         "grupos":            GRUPOS_DROPDOWN,
         "labels":            PROTOCOLO_LABEL,
         "cor_label":         COR_LABEL,
@@ -349,10 +379,6 @@ async def agenda_get(request: Request):
         "protocolo_bucket":  {k: v[1] for k, v in PROTOCOLO.items()},
         "qt_json":           json.dumps({k: QT_MIN[v[0]] for k, v in PROTOCOLO.items()}),
         "intervalo_json":    json.dumps(INTERVALO_CICLO),
-        "bandas":            bandas,
-        "cap_dia":           cap_dia,
-        "staff_curve_json":  json.dumps(bandas),
-        "sessoes_json":      json.dumps([{"chegada": s.chegada} for s in sessoes]),
         "faixa_convenio":    _faixa_convenio_txt(),
         "poltronas":         _montar_poltronas(ag_list, sessoes),
         "status_label":      STATUS_LABEL,
@@ -380,6 +406,8 @@ async def adicionar(
     ordem_medica:         Optional[str] = Form(None),
     num_prontuario:       Optional[str] = Form(None),
     telefone:             Optional[str] = Form(None),
+    horario:              Optional[str] = Form(None),
+    poltrona:             Optional[str] = Form(None),
 ):
     nome = nome.strip().title()
 
@@ -411,8 +439,29 @@ async def adicionar(
             num_prontuario=num_prontuario.strip() if num_prontuario and num_prontuario.strip() else None,
             telefone=telefone.strip() if telefone and telefone.strip() else None,
             cor_qt_override=cor_qt_override,
+            horario=_hhmm(horario),
+            poltrona=_poltrona(poltrona),
         )
         registrar_log("walk_in:cadastro", _usuario(request), agendamento_id=ag_id, detalhes=nome)
+    return RedirectResponse(f"/?data={data_sessao}", status_code=303)
+
+
+def _poltrona(v) -> Optional[int]:
+    v = (v or "").strip()
+    return int(v) if v.isdigit() and int(v) >= 1 else None
+
+
+@app.post("/alocar/{ag_id}")
+async def alocar_post(
+    request: Request, ag_id: int,
+    data_sessao: str = Form(...),
+    horario: Optional[str] = Form(None),
+    poltrona: Optional[str] = Form(None),
+):
+    h_min, pol = _hhmm(horario), _poltrona(poltrona)
+    alocar(ag_id, h_min, pol)
+    registrar_log("alocar", _usuario(request), agendamento_id=ag_id,
+                  detalhes=f"{_fmt(h_min) if h_min is not None else '—'} · poltrona {pol or '—'}")
     return RedirectResponse(f"/?data={data_sessao}", status_code=303)
 
 
@@ -444,48 +493,23 @@ async def anotar(ag_id: int, texto: str = Form(...), next: str = Form("/painel")
 @app.get("/painel", response_class=HTMLResponse)
 async def painel_get(request: Request):
     hoje = str(date.today())
-    ag_list, sessoes = _build_dia(hoje, ao_vivo=True)
+    ag_list, sessoes = _build_dia(hoje)
     poltronas = _montar_poltronas(ag_list, sessoes)
-
-    # Carga por papel (técnico / enfermeiro / limpeza)
-    cargas = {"tecnico": 0.0, "enfermeiro": 0.0, "limpeza": 0.0}
-    for p in poltronas:
-        pesos = CARGA_POR_PAPEL.get(p["status"], CARGA_POR_PAPEL["livre"])
-        for papel in cargas:
-            cargas[papel] += pesos[papel]
-
-    now_min   = datetime.now().hour * 60 + datetime.now().minute
-    staff_now = staff_agora(now_min, dia_semana=date.today().weekday())
-    carga_ctx = {
-        papel: {
-            "total": round(cargas[papel], 1),
-            "max":   max(staff_now[papel], 1),
-            "pct":   min(100, round(cargas[papel] / max(staff_now[papel], 1) * 100)),
-        }
-        for papel in cargas
-    }
 
     return templates.TemplateResponse(request, "painel.html", {
         "poltronas":      poltronas,
+        "n_sem_poltrona": len(_pendentes(ag_list)),
         "labels":         PROTOCOLO_LABEL,
         "status_label":   STATUS_LABEL,
         "data":           hoje,
         "hoje":           hoje,
         "fmt":            _fmt,
-        "carga_ctx":      carga_ctx,
-        "carga_por_papel": CARGA_POR_PAPEL,
     })
 
 
 @app.post("/registrar/{ag_id}/{evento}")
 async def registrar(request: Request, ag_id: int, evento: str, next: str = Form("/painel")):
-    if evento.lower() == "punção":
-        # Grava a poltrona que o painel mostrava: a partir daqui o paciente não muda de lugar
-        ag_list, sessoes = _build_dia(str(date.today()), ao_vivo=True)
-        for p in _montar_poltronas(ag_list, sessoes):
-            if p["ag"].get("ag_id") == ag_id:
-                fixar_poltrona(ag_id, p["num"])
-                break
+    # A poltrona já vem da alocação manual — registrar a etapa não muda o lugar
     registrar_evento(ag_id, evento, datetime.now().strftime("%H:%M"))
     registrar_log(f"evento:{evento}", _usuario(request), agendamento_id=ag_id)
     return RedirectResponse(next, status_code=303)
@@ -493,9 +517,7 @@ async def registrar(request: Request, ag_id: int, evento: str, next: str = Form(
 
 @app.post("/desfazer/{ag_id}/{evento}")
 async def desfazer(request: Request, ag_id: int, evento: str, next: str = Form("/registro")):
-    desfazer_evento(ag_id, evento)
-    if evento.lower() == "punção":
-        fixar_poltrona(ag_id, None)
+    desfazer_evento(ag_id, evento)   # não mexe na alocação (horário e poltrona ficam)
     registrar_log(f"desfazer:{evento}", _usuario(request), agendamento_id=ag_id)
     return RedirectResponse(next, status_code=303)
 
@@ -599,11 +621,7 @@ async def lista_get(request: Request, dias: int = Query(default=7)):
         sessao_por_nome = {s.paciente.nome: s for s in sessoes}
         for ag in ag_list:
             sessao = sessao_por_nome.get(ag["nome"])
-            if sessao:
-                chegada_h = max(DIA_INI, sessao.chegada - scheduler.OFFSET_CHEGADA_HOSPITAL)
-                horario_chegada = _fmt(chegada_h)
-            else:
-                horario_chegada = "—"
+            horario_chegada = _fmt(sessao.chegada) if sessao else "—"
             registros.append({
                 "nome":            ag["nome"],
                 "num_prontuario":  ag.get("num_prontuario") or "",
@@ -635,11 +653,7 @@ async def lista_csv(request: Request, dias: int = Query(default=7)):
         sessao_por_nome = {s.paciente.nome: s for s in sessoes}
         for ag in ag_list:
             sessao = sessao_por_nome.get(ag["nome"])
-            if sessao:
-                chegada_h = max(DIA_INI, sessao.chegada - scheduler.OFFSET_CHEGADA_HOSPITAL)
-                horario_chegada = _fmt(chegada_h)
-            else:
-                horario_chegada = ""
+            horario_chegada = _fmt(sessao.chegada) if sessao else ""
             writer.writerow([
                 ag["nome"],
                 ag.get("num_prontuario") or "",
@@ -733,23 +747,57 @@ def _planejado_x_real() -> list:
     return sorted(linhas, key=lambda l: -max(l["n_pre"], l["n_qt"]))
 
 
+def _vazio(v):
+    return "" if v is None else v
+
+
+def _dif(prev: Optional[int], real: Optional[int]) -> Optional[int]:
+    return (real - prev) if (prev is not None and real is not None) else None
+
+
+def _previsto_x_real_dia(data: str) -> list:
+    """Uma linha por atendimento do dia: o previsto (horário alocado + tempos do
+    protocolo do paciente) contra o que a equipe marcou no painel.
+    Pré-QT real = pré-QT → QT; QT real = QT → retirada; total = punção → retirada."""
+    linhas = []
+    for ag in get_dia(data):
+        pac = _make_paciente(ag)
+        ev  = ag.get("eventos") or {}
+        pre_p, qt_p = pac.t_pre, pac.t_qt
+        tot_p = pac.t_pre + scheduler.GAP_PRE_QT + pac.t_qt   # mesma régua do real: punção → retirada
+        pre_r = _duracao(ev, "pré-QT", "QT")
+        qt_r  = _duracao(ev, "QT", "retirada")
+        tot_r = _duracao(ev, "punção", "retirada")
+        puncao = _min(ev.get("punção"))
+        linhas.append({
+            "nome":     ag["nome"],
+            "protocolo": PROTOCOLO_LABEL.get(ag["protocolo"], ag["protocolo"]),
+            "poltrona": ag.get("poltrona"),
+            "inicio_prev": _fmt(ag["horario"]) if ag.get("horario") is not None else None,
+            "puncao_real": ev.get("punção"),
+            "atraso":   _dif(ag.get("horario"), puncao),
+            "pre_p": pre_p, "pre_r": pre_r, "pre_d": _dif(pre_p, pre_r),
+            "qt_p":  qt_p,  "qt_r":  qt_r,  "qt_d":  _dif(qt_p, qt_r),
+            "tot_p": tot_p, "tot_r": tot_r, "tot_d": _dif(tot_p, tot_r),
+        })
+    return sorted(linhas, key=lambda l: (l["inicio_prev"] or "99", l["nome"]))
+
+
 @app.get("/relatorio", response_class=HTMLResponse)
 async def relatorio_get(request: Request, data: str = Query(default=None)):
-    if not data:
-        data = str(date.today())
-    cap_dia = capacidade_do_dia(dia_semana=date.fromisoformat(data).weekday())
+    data = _data_valida(data)
     stats   = get_relatorio_dia(data)
     obs     = get_observacoes_dia(data)
     return templates.TemplateResponse(request, "relatorio.html", {
+        "atendimentos":  _previsto_x_real_dia(data),
         "tempos":        _planejado_x_real(),
         "min_amostra":   MIN_AMOSTRA_TEMPOS,
         "parametros":    _parametros_list(),
-        "cap_dia":       cap_dia,
         "stats":         stats,
         "obs":           obs,
         "data":          data,
         "hoje":          str(date.today()),
-        "RAZAO_WALK_IN": scheduler.RAZAO_WALK_IN,
+        "fmt":           _fmt,
     })
 
 
@@ -764,11 +812,9 @@ async def salvar_obs(request: Request, data: str = Form(...)):
 @app.get("/relatorio/csv")
 async def relatorio_csv(request: Request, data: str = Query(default=None)):
     import csv, io
-    if not data:
-        data = str(date.today())
+    data = _data_valida(data)
     stats   = get_relatorio_dia(data)
     obs     = get_observacoes_dia(data)
-    cap_dia = capacidade_do_dia(dia_semana=date.fromisoformat(data).weekday())
     params  = _parametros_list()
 
     output = io.StringIO()
@@ -784,11 +830,17 @@ async def relatorio_csv(request: Request, data: str = Query(default=None)):
     w.writerow(["Concluídos",   stats["concluidos"]])
     w.writerow(["Intercorrências", len(stats["intercorrencias"])])
     w.writerow([])
-    w.writerow(["CAPACIDADE CALCULADA"])
-    w.writerow(["Técnico-horas de punção", cap_dia["tecnico_horas"]])
-    w.writerow(["Teto do dia",             cap_dia["teto"]])
-    w.writerow(["Pool agendado",           cap_dia["n_agendado"]])
-    w.writerow(["Pool walk-in",            cap_dia["n_walk_in"]])
+    w.writerow(["ATENDIMENTOS DO DIA — PREVISTO × REAL (min; diferença positiva = demorou mais)"])
+    w.writerow(["Paciente", "Protocolo", "Poltrona", "Início previsto", "Punção real", "Atraso no início",
+                "Pré-QT previsto", "Pré-QT real", "Pré-QT dif.",
+                "QT previsto", "QT real", "QT dif.",
+                "Total previsto", "Total real", "Total dif."])
+    for a in _previsto_x_real_dia(data):
+        w.writerow([a["nome"], a["protocolo"], a["poltrona"] or "", a["inicio_prev"] or "", a["puncao_real"] or "",
+                    _vazio(a["atraso"]),
+                    a["pre_p"], _vazio(a["pre_r"]), _vazio(a["pre_d"]),
+                    a["qt_p"],  _vazio(a["qt_r"]),  _vazio(a["qt_d"]),
+                    a["tot_p"], _vazio(a["tot_r"]), _vazio(a["tot_d"])])
     w.writerow([])
     w.writerow(["TEMPOS POR PROTOCOLO — PLANEJADO × REAL (todo o histórico, mediana em min)"])
     w.writerow(["Protocolo", "Pré-QT planejado", "Pré-QT real", "Pré-QT n", "QT planejado", "QT real", "QT n"])

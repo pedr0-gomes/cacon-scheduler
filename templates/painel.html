@@ -31,39 +31,19 @@
     <div class="vital-num" style="color:#15803d;">{{ n_livre }}</div>
     <div class="vital-label">Livres</div>
   </div>
-  {% set carga_max_pct = [carga_ctx.tecnico.pct, carga_ctx.enfermeiro.pct, carga_ctx.limpeza.pct] | max %}
-  <div class="vital-item">
-    <div class="vital-num" style="color:{% if carga_max_pct >= 90 %}#dc2626{% elif carga_max_pct >= 70 %}#d97706{% else %}#15803d{% endif %};">{{ carga_max_pct }}%</div>
-    <div class="vital-label">Carga máx.</div>
-  </div>
 </div>
 
-<!-- Carga por papel -->
-<div class="card" style="margin-bottom:20px; padding:20px 24px;">
-  <div style="font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:#6b7280; margin-bottom:16px;">Carga por papel</div>
-  <div class="carga-grid">
-    {% set papeis = [
-      ("tecnico",    "Técnicos",    "#f59e0b"),
-      ("enfermeiro", "Enfermeiros", "#3b82f6"),
-      ("limpeza",    "Limpeza",     "#7c3aed"),
-    ] %}
-    {% for chave, label, cor in papeis %}
-    {% set c = carga_ctx[chave] %}
-    <div class="carga-item">
-      <div class="carga-num" style="color:{% if c.pct >= 90 %}#dc2626{% elif c.pct >= 70 %}#d97706{% else %}{{ cor }}{% endif %};">{{ c.total }}</div>
-      <div class="carga-role">{{ label }} <span style="font-weight:400; color:#9ca3af;">/ {{ c.max }}</span></div>
-      <div class="carga-bar-wrap">
-        <div class="carga-bar-fill" style="width:{{ c.pct }}%; background:{% if c.pct >= 90 %}#ef4444{% elif c.pct >= 70 %}#f59e0b{% else %}{{ cor }}{% endif %};"></div>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
+{% if n_sem_poltrona %}
+<div class="card" style="margin-bottom:20px; padding:12px 18px; border-left:4px solid #eab308;">
+  {{ n_sem_poltrona }} paciente(s) de hoje ainda sem horário ou poltrona —
+  <a href="/">alocar na Triagem</a>.
 </div>
+{% endif %}
 
 {% if not poltronas or poltronas|selectattr("sessao")|list|length == 0 %}
 <div class="card">
   <div class="empty">
-    Nenhuma agenda gerada.<br>
+    Nenhum paciente alocado em poltrona hoje.<br>
     <a href="/" class="btn btn-primary" style="margin-top:16px; display:inline-flex;">← Ir para Triagem</a>
   </div>
 </div>
@@ -97,6 +77,7 @@
     <div class="chair-num">{{ pol.num }}</div>
     {% if pol.sessao and pol.status != 'livre' %}
       <div class="chair-nome">{{ pol.sessao.paciente.nome.split()[0] }}</div>
+      {% if pol.status == 'aguardando_puncao' %}<div style="font-size:11px; color:#6b7280;">{{ fmt(pol.sessao.chegada) }}</div>{% endif %}
     {% else %}
       <div class="chair-nome" style="color:#d1d5db;">—</div>
     {% endif %}
@@ -108,13 +89,6 @@
       data-total-min="{{ (pol.sessao.saida_est - pol.sessao.chegada) if pol.sessao and pol.status != 'livre' else 0 }}"></div>
   </div>
   <div class="chair-bar-pct"></div>
-  {% set pesos = carga_por_papel.get(pol.status, carga_por_papel["livre"]) %}
-  {% set carga_max = [pesos["tecnico"], pesos["enfermeiro"], pesos["limpeza"]] | max %}
-  {% if carga_max >= 0.8 %}
-    <div style="position:absolute; top:8px; right:8px; width:9px; height:9px; border-radius:50%; background:#ef4444;" title="Carga alta"></div>
-  {% elif carga_max >= 0.2 %}
-    <div style="position:absolute; top:8px; right:8px; width:9px; height:9px; border-radius:50%; background:#f59e0b;" title="Carga média"></div>
-  {% endif %}
 </div>
 {% endfor %}
 </div>

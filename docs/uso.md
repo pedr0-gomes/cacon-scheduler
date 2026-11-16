@@ -34,39 +34,42 @@ Use a senha definida em `config.py` (`SENHA_TRIAGEM`).
 ### Tarde do dia anterior: confirmar presença (D-1)
 
 1. Acesse `/confirmacao`
-2. A lista mostra todos os pacientes agendados para amanhã com o horário sugerido de chegada
+2. A lista mostra todos os pacientes agendados para amanhã, com o horário marcado na Triagem
 3. Contate cada paciente e marque **Confirmado** ou **Não confirmou**
-4. Pacientes que não confirmam liberam a vaga para walk-in no dia seguinte
+4. Quem não confirmou fica marcado; a equipe decide o que fazer com o horário e a poltrona dele
 
-### Manhã: gerenciar walk-ins e acompanhar o dia
+### Alocar os pacientes: horário e poltrona
 
-1. Acesse `/` (Triagem)
-2. A tela mostra **Salão agora** (todas as poltronas, com o paciente e a etapa de cada uma), a capacidade por janela de horário e a escala do dia
-3. Quando chegar um paciente walk-in ou uma ordem médica: clique em **+ Walk-in**
+**Quem decide o horário e a poltrona é a equipe.** O sistema não sugere, não limita horário e não tem teto de pacientes por dia. Ele só guarda o que foi marcado e mede quanto tempo cada atendimento levou de verdade.
 
-> **Poltrona livre não é o mesmo que vaga.** O limite do dia é a punção (quantos técnicos estão disponíveis em cada horário), não o número de poltronas. Antes de aceitar um walk-in, olhe os cartões de capacidade por horário, logo abaixo do salão.
->
-> Poltrona **reservada** (amarela) é a de um paciente que ainda não foi puncionado: o horário e a poltrona dele são sugestões e podem mudar quando entra gente nova. A partir do momento em que a punção é registrada no painel, o paciente **fica na poltrona** em que foi puncionado.
+1. Acesse `/` (Triagem). Ela abre no dia de hoje; use o campo **Dia** no topo para ver e alocar qualquer outro dia (amanhã, a semana que vem…)
+2. O quadro **Para alocar** lista os pacientes daquele dia que ainda não têm horário ou poltrona (por exemplo, os cadastrados em Configuração → Pacientes ou agendados pelo Horizonte). Escolha o **horário de início** e a **poltrona** e clique em **Salvar**
+3. Quem já tem horário e poltrona aparece na **Escala do dia**, em ordem de horário, com o **fim previsto** (horário + tempo do protocolo do paciente). Para mudar, altere na própria linha e **Salvar**
+4. Se dois pacientes ficarem na mesma poltrona em horários que se cruzam, a linha mostra **⚠ sobrepõe com…**. É só um aviso: o sistema não impede
+5. **Salão agora** (só no dia de hoje) mostra cada poltrona com o paciente e a etapa. Poltrona **reservada** (amarela) é a de quem ainda não foi puncionado, com o horário marcado
+6. O ✕ na linha tira o paciente daquele dia
+
+O paciente só aparece no Painel depois de ter horário **e** poltrona.
 
 #### Cadastrar um walk-in
 
-No modal, preencha:
+Clique em **+ Walk-in** e preencha:
 
 | Campo | Obrigatório | Notas |
 |---|---|---|
 | Nome do paciente | Sim | |
-| Protocolo | Sim | Escolha da lista ou "Outro protocolo..." para protocolo fora da lista |
-| Data da sessão | Sim | Trava em hoje para walk-in |
-| Total de ciclos | Recomendado | Necessário para o agendamento automático de retorno |
+| Protocolo | Sim | Escolha da lista ou "Outro protocolo..." para protocolo fora da lista. Os tempos de pré-QT e QT viram o **previsto** do relatório |
+| Horário de início e poltrona | Não | Se ficarem vazios, o paciente vai para **Para alocar** |
+| Total de ciclos | Recomendado | Usado para saber quando o tratamento termina |
 | Ciclos já feitos | Se já estava em tratamento | Só vale para paciente novo no sistema; sem ele a contagem começa do zero. Para quem já tem cadastro, corrija em Configuração → Pacientes → Editar |
 | Número de prontuário | Recomendado | |
 | Telefone | Recomendado | |
 | Nome da mãe + data de nascimento | Recomendado | Dois identificadores para segurança da identificação |
-| Convênio | Se aplicável | Senta só nas poltronas de convênio (definidas em Configuração → Parâmetros) |
-| Ordem médica | Se aplicável | Prioridade máxima no scheduler |
-| Flexibilidade | Padrão: Alta | "Baixa" = paciente com restrição de horário |
+| Convênio / Ordem médica | Se aplicável | Só registro — não muda horário nem poltrona |
 
-**Protocolo fora da lista:** selecione "Outro protocolo...", informe o nome, a cor de duração (verde/azul/amarelo/vermelho) e o bucket de pré-medicação (A/B/C/Z). O scheduler aloca com base nesses parâmetros.
+O walk-in entra no dia que está aberto na Triagem.
+
+**Protocolo fora da lista:** selecione "Outro protocolo...", informe o nome, a cor de duração (verde/azul/amarelo/vermelho) e o bucket de pré-medicação (A/B/C/Z). Esses valores dão o tempo previsto.
 
 ### Agendar retornos (horizonte)
 
@@ -75,7 +78,7 @@ Após a sessão de um paciente ser concluída no painel, acesse `/horizonte` par
 1. O horizonte mostra todos os pacientes com retorno esperado nos próximos 30 dias (ajustável)
 2. Pacientes com badge **Aguardando** ainda não têm próxima sessão agendada
 3. Clique em **Agendar** → ajuste a data se necessário → confirme
-4. O sistema verifica automaticamente a disponibilidade de vagas antes de confirmar
+4. A sessão é criada na data escolhida, sem verificação de vaga. Depois, aloque horário e poltrona na Triagem (no dia da sessão, ela aparece em **Para alocar**)
 
 ---
 
@@ -106,17 +109,17 @@ No modal da poltrona, há um campo de texto livre para anotar intercorrências (
 
 ### Agendar próxima sessão pelo painel
 
-Quando o paciente recebe a retirada, o modal mostra o botão **Agendar próxima**. Informe o intervalo em dias e a data sugerida aparece pré-preenchida. O enfermeiro de triagem também pode fazer isso pelo `/horizonte`.
+Quando o paciente recebe a retirada, o modal mostra o botão **Agendar próxima**. Informe o intervalo em dias; a data aparece pré-preenchida e pode ser mudada — vale a data que ficar no campo. O enfermeiro de triagem também pode fazer isso pelo `/horizonte`. O horário e a poltrona da próxima sessão se marcam na Triagem.
 
 ---
 
 ## Lista de agendamentos — profissional do agendamento
 
-Acesse `/lista` para ver os pacientes agendados nos próximos 7 dias (padrão) com o horário de chegada sugerido pelo sistema.
+Acesse `/lista` para ver os pacientes agendados nos próximos 7 dias (padrão) com o horário marcado na Triagem ("—" = ainda sem horário).
 
 - **`/lista.csv`** exporta a lista em planilha para ligar e confirmar
 
-O horário informado ao paciente já desconta o tempo de espera (recepção, cadastro) — o scheduler calcula a punção no horário ótimo e informa ao paciente 2h antes.
+O horário da lista é exatamente o marcado na Triagem — se o paciente precisa chegar antes por causa da recepção, isso é combinado por quem liga.
 
 ---
 
@@ -126,9 +129,21 @@ Acesse `/relatorio` ao final do expediente.
 
 O relatório mostra:
 - Total de pacientes no dia, agendados vs. walk-ins, concluídos
-- Capacidade calculada pelo scheduler (teto, pool agendado, pool walk-in)
+- **Atendimentos do dia: previsto × real** — uma linha por paciente (explicação abaixo)
+- **Tempos por protocolo: planejado × real** — a mediana de todo o histórico, por protocolo
 - Parâmetros operacionais atuais com campo de observação por parâmetro
 - Intercorrências do dia
+
+**Previsto × real, paciente a paciente.** O previsto é o horário marcado na Triagem e os tempos do protocolo do paciente. O real é o que a equipe registrou no painel:
+
+| Coluna | Previsto | Real |
+|---|---|---|
+| Início | horário marcado na Triagem | hora da punção (a diferença é o **atraso**) |
+| Pré-QT | tempo de pré-QT do protocolo | do registro de pré-QT até o de QT |
+| QT | tempo de QT do protocolo | do registro de QT até o de retirada |
+| Total na poltrona | pré-QT + intervalo + QT | da punção até a retirada |
+
+Diferença **positiva (vermelha)** = demorou mais que o previsto; negativa (verde) = terminou antes. Exemplo: total previsto 4h00, real 5h00, **+60**; na mesma linha, pré-QT **+30** mostra quanto desse atraso veio da pré-QT. Para a linha ficar completa, registre **punção, pré-QT, QT e retirada** no painel; etapa sem registro aparece como "—".
 
 **Como usar o campo de observação:** se o tempo real de punção foi diferente do parâmetro padrão, registre. Esses registros acumulam o histórico de calibração.
 
@@ -138,17 +153,13 @@ O relatório mostra:
 
 ## Dicas operacionais
 
-**O scheduler não é uma ordem.** Os horários sugeridos são pontos de partida; a equipe continua decidindo na prática. O valor do sistema está no nivelamento do fluxo ao longo do dia, não em controlar cada detalhe.
+**O sistema não limita.** Não há teto de pacientes por dia, vaga de walk-in nem horário proibido. Quem organiza o salão é a equipe; o sistema registra e mede.
 
-**Tempos planejados × reais.** O relatório (`/relatorio`) tem a tabela *Tempos por protocolo*: para cada protocolo, o pré-QT e o QT planejados ao lado da mediana do que a equipe registrou no painel, com o número de sessões e a diferença. Serve só para olhar — nada ali muda o agendamento. Com menos de 5 sessões, trate como indício. Para a tabela fazer sentido, registre as etapas **pré-QT, QT e retirada** no painel; sem elas a sessão não entra na conta. Quando os números se firmarem, ajuste o tempo em Configuração → Parâmetros ou no cadastro do paciente.
-
-**Calibração ao longo do tempo.** Após 2–4 semanas de uso, compare o teto calculado com o total realizado no relatório. Se o teto calculado estiver muito acima do real, reduza **Punções por técnico por hora** em Configuração → Parâmetros.
-
-**Walk-in esgotou as vagas.** Se o pool walk-in estiver cheio e chegar um paciente com ordem médica, o sistema permite o cadastro e o scheduler move o agendado com `flexibilidade = alta` para acomodar.
+**Tempos planejados × reais por protocolo.** A tabela *Tempos por protocolo* do relatório junta todo o histórico: para cada protocolo, o pré-QT e o QT planejados ao lado da mediana do que foi registrado, com o número de sessões. Com menos de 5 sessões, trate como indício. Quando os números se firmarem, ajuste o tempo em Configuração → Parâmetros ou no cadastro do paciente — assim o **previsto** fica mais perto do real.
 
 **Paciente não confirmou mas apareceu.** Cadastre como walk-in normalmente. O sistema trata como entrada do dia.
 
-**Protocolo novo não está na lista.** Use "Outro protocolo..." no modal. Informe a duração estimada da QT em minutos para o scheduler alocar corretamente. Para entrar na lista fixa, o protocolo precisa ser adicionado em `scheduler.py` (`PROTOCOLO`) e `app.py` (`PROTOCOLO_LABEL`).
+**Protocolo novo não está na lista.** Use "Outro protocolo..." no modal. Informe a duração estimada da QT para o previsto do relatório fazer sentido. Para entrar na lista fixa, o protocolo precisa ser adicionado em `scheduler.py` (`PROTOCOLO`) e `app.py` (`PROTOCOLO_LABEL`).
 
 ---
 
@@ -168,19 +179,18 @@ A sessão já entra como agendada: aparece na Confirmação D-1, no Horizonte e 
 
 ### Escala da equipe
 
-Define quem trabalha em cada dia e horário — é daí que sai o teto de pacientes do dia.
+Registro de quem trabalha em cada dia e horário. **Não limita a Triagem** — o teto e as vagas que a tela mostra são só informativos.
 
 - Escolha o dia da semana, ajuste horários e intervalo de cada profissional, **Salvar** na linha
 - **+ Adicionar** inclui um profissional; **Remover** tira
 - **Copiar** replica a escala de um dia para outros; **Restaurar escala padrão** volta ao original
-- Dia sem ninguém = setor fechado: o sistema não agenda retorno nesse dia
 - Um técnico do salão fica sempre na montagem da droga — o sistema já desconta; cadastre todos os técnicos
 
-A tela mostra o teto do dia e quantos técnicos, enfermeiros e higienizadores estão disponíveis em cada hora. As mudanças valem na hora.
+A tela mostra quantos técnicos, enfermeiros e higienizadores estão disponíveis em cada hora.
 
 ### Parâmetros
 
-Número de poltronas (SUS, convênio, hematologia), punções por técnico por hora, % de vagas para walk-in, horário da última punção e os tempos de cada etapa. A tela mostra o teto resultante de cada dia da semana. Valor diferente do padrão fica destacado em amarelo; **Restaurar padrões** volta tudo.
+Número de poltronas (SUS, convênio, hematologia) — é o que aparece para escolher na Triagem — e os tempos de cada etapa, que formam o **previsto**. Os campos de capacidade (punções por técnico, % walk-in, última punção) não limitam mais nada. Valor diferente do padrão fica destacado em amarelo; **Restaurar padrões** volta tudo.
 
 Toda alteração em Configuração fica registrada na Auditoria.
 

@@ -97,6 +97,59 @@
 {% endif %}
 
 <!-- ═══ TEMPOS: PLANEJADO × REAL ═══════════════════════════════════ -->
+<!-- ═══ ATENDIMENTOS DO DIA: PREVISTO × REAL ═══════════════════════ -->
+{% macro dif(v) %}{% if v is none %}—{% elif v > 0 %}<strong style="color:#b91c1c;">+{{ v }}</strong>{% elif v < 0 %}<span style="color:#15803d;">{{ v }}</span>{% else %}0{% endif %}{% endmacro %}
+{% macro dur(v) %}{% if v is none %}—{% else %}{{ fmt(v) }}{% endif %}{% endmacro %}
+<div class="card" style="margin-bottom:24px;">
+  <h2>Atendimentos do dia: previsto × real</h2>
+  <p style="font-size:13px; color:#6b7280; margin-top:4px;">
+    Previsto = horário e poltrona marcados na Triagem + tempos do protocolo do paciente.
+    Real = o que a equipe registrou no painel (pré-QT até o início do QT; QT até a retirada; total da punção até a retirada).
+    Diferença em minutos: <strong style="color:#b91c1c;">+</strong> demorou mais, <span style="color:#15803d;">−</span> terminou antes.
+  </p>
+  {% if atendimentos %}
+  <div style="overflow-x:auto;">
+  <table class="tabela-agenda">
+    <thead>
+      <tr>
+        <th>Paciente</th><th>Poltrona</th>
+        <th colspan="3" style="text-align:center;">Início</th>
+        <th colspan="3" style="text-align:center;">Pré-QT</th>
+        <th colspan="3" style="text-align:center;">QT</th>
+        <th colspan="3" style="text-align:center;">Total na poltrona</th>
+      </tr>
+      <tr>
+        <th></th><th></th>
+        <th>Previsto</th><th>Punção</th><th>Atraso</th>
+        <th>Prev.</th><th>Real</th><th>Dif.</th>
+        <th>Prev.</th><th>Real</th><th>Dif.</th>
+        <th>Prev.</th><th>Real</th><th>Dif.</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in atendimentos %}
+      <tr>
+        <td><strong>{{ a.nome }}</strong><div style="font-size:12px; color:#6b7280;">{{ a.protocolo }}</div></td>
+        <td>{{ a.poltrona or '—' }}</td>
+        <td>{{ a.inicio_prev or '—' }}</td>
+        <td>{{ a.puncao_real or '—' }}</td>
+        <td>{{ dif(a.atraso) }}</td>
+        <td>{{ a.pre_p }}</td><td>{{ a.pre_r if a.pre_r is not none else '—' }}</td><td>{{ dif(a.pre_d) }}</td>
+        <td>{{ a.qt_p }}</td><td>{{ a.qt_r if a.qt_r is not none else '—' }}</td><td>{{ dif(a.qt_d) }}</td>
+        <td>{{ dur(a.tot_p) }}</td><td>{{ dur(a.tot_r) }}</td><td>{{ dif(a.tot_d) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p style="font-size:12px; color:#6b7280; margin-top:8px;">
+    Pré-QT e QT em minutos; total em horas:minutos. "—" = etapa ainda não registrada no painel.
+  </p>
+  {% else %}
+  <p class="empty">Nenhum paciente neste dia.</p>
+  {% endif %}
+</div>
+
 <div class="card" style="margin-bottom:24px;">
   <h2>Tempos por protocolo: planejado × real</h2>
   <p style="font-size:13px; color:#6b7280; margin-top:4px;">
@@ -140,22 +193,6 @@
   {% else %}
   <p class="empty">Ainda não há sessões com os registros necessários (pré-QT, QT e retirada marcados no painel).</p>
   {% endif %}
-</div>
-
-<!-- ═══ CAPACIDADE DO DIA ══════════════════════════════════════════ -->
-<div class="card" style="margin-bottom:24px;">
-  <h2>Capacidade calculada</h2>
-  <table class="tabela-agenda">
-    <thead>
-      <tr><th>Parâmetro</th><th>Valor</th></tr>
-    </thead>
-    <tbody>
-      <tr><td>Técnico-horas de punção</td><td><strong>{{ cap_dia.tecnico_horas }} h</strong></td></tr>
-      <tr><td>Teto do dia</td><td><strong>{{ cap_dia.teto }} pacientes</strong></td></tr>
-      <tr><td>Pool agendado ({{ (100 - RAZAO_WALK_IN * 100)|int }}%)</td><td>{{ cap_dia.n_agendado }}</td></tr>
-      <tr><td>Pool walk-in ({{ (RAZAO_WALK_IN * 100)|int }}%)</td><td>{{ cap_dia.n_walk_in }}</td></tr>
-    </tbody>
-  </table>
 </div>
 
 <!-- ═══ PARÂMETROS OPERACIONAIS ═══════════════════════════════════ -->

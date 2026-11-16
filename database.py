@@ -107,6 +107,8 @@ def init_db():
             "ALTER TABLE pacientes ADD COLUMN ciclos_previos INTEGER NOT NULL DEFAULT 0",
             # Poltrona em que o paciente foi puncionado — fixa a partir daí
             "ALTER TABLE agendamentos ADD COLUMN poltrona INTEGER",
+            # Horário de início escolhido pela triagem (minutos desde 0h) — alocação manual
+            "ALTER TABLE agendamentos ADD COLUMN horario INTEGER",
         ]
         for sql in _migracoes:
             try:
@@ -141,7 +143,7 @@ def get_db():
 def get_dia(data: str) -> list:
     with get_db() as db:
         rows = db.execute("""
-            SELECT a.id AS ag_id, a.status, a.confirmado, a.paciente_id, a.ordem_medica, a.poltrona,
+            SELECT a.id AS ag_id, a.status, a.confirmado, a.paciente_id, a.ordem_medica, a.poltrona, a.horario,
                    p.nome, p.nome_mae, p.data_nascimento,
                    p.protocolo, p.pre_override, p.qt_override_min,
                    p.intervalo_ciclo_dias, p.total_ciclos,
@@ -176,6 +178,7 @@ def get_dia(data: str) -> list:
                 "paciente_id":          r["paciente_id"],
                 "ordem_medica":         r["ordem_medica"],
                 "poltrona":             r["poltrona"],
+                "horario":              r["horario"],
                 "nome":                 r["nome"],
                 "nome_mae":             r["nome_mae"],
                 "data_nascimento":      r["data_nascimento"],
@@ -202,7 +205,7 @@ def criar_agendamento(
     pre_override, qt_override_min, intervalo_ciclo_dias, data_sessao,
     is_convenio=False, flexibilidade="alta", municipio=None, ordem_medica=0,
     total_ciclos=None, num_prontuario=None, telefone=None, cor_qt_override=None,
-    ciclos_previos=0,
+    ciclos_previos=0, horario=None, poltrona=None,
 ) -> int:
     """ciclos_previos só vale para paciente novo: num cadastro existente a contagem
     já vem do cadastro + das retiradas registradas (corrigir em Configuração)."""
@@ -246,12 +249,17 @@ def criar_agendamento(
             (pac_id, data_sessao)
         ).fetchone()
         if existing_ag:
+            if horario is not None or poltrona is not None:
+                db.execute(
+                    "UPDATE agendamentos SET horario=COALESCE(?, horario), poltrona=COALESCE(?, poltrona) WHERE id=?",
+                    (horario, poltrona, existing_ag["id"]),
+                )
             return existing_ag["id"]
 
         cur = db.execute(
-            "INSERT INTO agendamentos (paciente_id, data_sessao, status, ordem_medica) "
-            "VALUES (?, ?, 'walk_in', ?)",
-            (pac_id, data_sessao, ordem_medica)
+            "INSERT INTO agendamentos (paciente_id, data_sessao, status, ordem_medica, horario, poltrona) "
+            "VALUES (?, ?, 'walk_in', ?, ?, ?)",
+            (pac_id, data_sessao, ordem_medica, horario, poltrona)
         )
         return cur.lastrowid
 
@@ -274,9 +282,16 @@ def registrar_evento(ag_id: int, tipo: str, hora: str):
 
 
 def fixar_poltrona(ag_id: int, poltrona: int | None):
-    """Grava (ou limpa) a poltrona em que o paciente foi puncionado."""
+    """Grava (ou limpa) só a poltrona do agendamento."""
     with get_db() as db:
         db.execute("UPDATE agendamentos SET poltrona=? WHERE id=?", (poltrona, ag_id))
+
+
+def alocar(ag_id: int, horario: int | None, poltrona: int | None):
+    """Alocação manual pela triagem: grava horário (min desde 0h) e poltrona.
+    Sem nenhuma regra — vazio limpa o campo."""
+    with get_db() as db:
+        db.execute("UPDATE agendamentos SET horario=?, poltrona=? WHERE id=?", (horario, poltrona, ag_id))
 
 
 def desfazer_evento(ag_id: int, tipo: str):
@@ -682,11 +697,10 @@ def duracao_mediana_qt(paciente_id: int) -> int | None:
 def agendar_proxima(paciente_id: int, data_proxima: str, intervalo_dias: int) -> dict:
     """
     Retorna dict com:
-      - 'status': 'agendado' | 'concluido' | 'sem_vaga'
+      - 'status': 'agendado' | 'concluido' | 'data_invalida'
       - 'data': data agendada (se status='agendado')
     """
-    from datetime import date, timedelta
-    from scheduler import CICLO_MULTIAPP
+    from datetime import date
 
     with get_db() as db:
         pac = db.execute(
@@ -699,24 +713,13 @@ def agendar_proxima(paciente_id: int, data_proxima: str, intervalo_dias: int) ->
     if total is not None and atual >= total:
         return {"status": "concluido", "data": None}
 
-    # Para protocolos multi-aplicação, recalcula intervalo e data-alvo
-    # a partir da última sessão concluída, ignorando o valor passado pela UI.
-    if protocolo in CICLO_MULTIAPP and atual >= 1:
-        intervalos = CICLO_MULTIAPP[protocolo]
-        intervalo_dias = intervalos[(atual - 1) % len(intervalos)]
-        with get_db() as db:
-            ultima = db.execute("""
-                SELECT MAX(a.data_sessao)
-                FROM agendamentos a
-                JOIN eventos e ON e.agendamento_id = a.id AND e.tipo = 'retirada'
-                WHERE a.paciente_id = ? AND a.status != 'cancelado'
-            """, (paciente_id,)).fetchone()[0]
-        if ultima:
-            data_proxima = str(date.fromisoformat(ultima) + timedelta(days=intervalo_dias))
-
-    data_disponivel = proxima_data_com_vaga(paciente_id, data_proxima, intervalo_dias)
-    if not data_disponivel:
-        return {"status": "sem_vaga", "data": None}
+    # Alocação manual (16/11): a data é a que a equipe escolheu. Não se procura
+    # "vaga" (proxima_data_com_vaga) nem se recalcula a data dos protocolos
+    # multi-aplicação (CICLO_MULTIAPP) — as duas funções ficam, sem uso aqui.
+    try:
+        data_disponivel = str(date.fromisoformat(data_proxima))
+    except ValueError:
+        return {"status": "data_invalida", "data": None}
 
     with get_db() as db:
         db.execute(

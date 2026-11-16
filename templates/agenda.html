@@ -22,7 +22,6 @@
 {% set n_total    = pacientes | length %}
 {% set n_agendado = pacientes | selectattr('status','eq','agendado') | list | length %}
 {% set n_walkin   = pacientes | selectattr('status','eq','walk_in')  | list | length %}
-{% set vagas_wi   = cap_dia.n_walk_in - n_walkin %}
 
 {# ── Mapa nome → ag (para lookup na tabela) ─────────────────────────────── #}
 {% set ag_map = {} %}
@@ -30,12 +29,28 @@
   {% if ag_map.update({p.nome: p}) %}{% endif %}
 {% endfor %}
 
+{% macro campos_alocacao(ag, horario_txt) %}
+  <input type="time" name="horario" value="{{ horario_txt }}" form="aloc-{{ ag.ag_id }}"
+         style="width:110px; padding:4px 6px;">
+  <select name="poltrona" form="aloc-{{ ag.ag_id }}" style="padding:4px 6px;">
+    <option value="">— poltrona —</option>
+    {% for n, seg in opcoes_poltrona %}
+      <option value="{{ n }}" {% if ag.poltrona == n %}selected{% endif %}>{{ n }} · {{ seg }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" form="aloc-{{ ag.ag_id }}" class="btn btn-primary btn-sm" style="padding:4px 10px;">Salvar</button>
+{% endmacro %}
+
 <!-- ═══════════════════════ CABEÇALHO ═══════════════════════ -->
 <h1>Triagem</h1>
-<p class="subtitulo">{{ data_legivel }}</p>
+<p class="subtitulo">{{ data_legivel }}{% if not e_hoje %} · <a href="/">voltar para hoje</a>{% endif %}</p>
 
 <!-- ═══════════════════════ BARRA DE AÇÕES ══════════════════ -->
-<div style="display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
+<div class="no-print" style="display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
+  <form method="get" action="/" style="display:flex; align-items:center; gap:8px; margin:0;">
+    <label for="sel-data" style="font-size:13px; font-weight:600;">Dia</label>
+    <input type="date" id="sel-data" name="data" value="{{ data }}" onchange="this.form.submit()">
+  </form>
   <button class="btn btn-primary btn-sm" onclick="document.getElementById('modal-walkin').style.display='flex'">
     + Walk-in
   </button>
@@ -56,19 +71,53 @@
     <div class="vital-label">Walk-ins</div>
   </div>
   <div class="vital-item">
-    <div class="vital-num" style="color:{% if vagas_wi > 5 %}#15803d{% elif vagas_wi > 0 %}#d97706{% else %}#dc2626{% endif %};">{{ vagas_wi }}</div>
-    <div class="vital-label">Vagas walk-in</div>
+    <div class="vital-num" style="color:{% if pendentes %}#d97706{% else %}#15803d{% endif %};">{{ pendentes|length }}</div>
+    <div class="vital-label">Sem horário/poltrona</div>
   </div>
   <div class="vital-item no-print" style="display:flex; flex-direction:column; justify-content:center; gap:8px; background:transparent; box-shadow:none; padding:0;">
-    <form method="post" action="/limpar" style="margin:0;">
-      <input type="hidden" name="data_sessao" value="{{ data }}">
-      <button type="submit" class="btn btn-ghost btn-sm" style="width:100%;">Limpar tudo</button>
-    </form>
     <button onclick="window.print()" class="btn btn-ghost btn-sm">Imprimir</button>
   </div>
 </div>
 
-<!-- ═══════════════════════ SALÃO AGORA ════════════════ -->
+{# Um form vazio por agendamento: os campos da linha apontam para ele (atributo form=) #}
+{% for ag in pacientes %}
+<form id="aloc-{{ ag.ag_id }}" method="post" action="/alocar/{{ ag.ag_id }}" style="display:none;">
+  <input type="hidden" name="data_sessao" value="{{ data }}">
+</form>
+{% endfor %}
+
+<!-- ═══════════════════════ PENDENTES DE ALOCAÇÃO ════════════════ -->
+{% if pendentes %}
+<div class="card" style="border-left:4px solid #eab308;">
+  <h2 style="margin-bottom:6px;">Para alocar ({{ pendentes|length }})</h2>
+  <p style="font-size:13px; color:#6b7280; margin-bottom:12px;">
+    Pacientes deste dia ainda sem horário ou sem poltrona. Escolha os dois e salve — não há limite de horário nem de quantidade.
+  </p>
+  <table class="tabela-agenda">
+    <thead><tr><th>Paciente</th><th>Prontuário</th><th>Protocolo</th><th>Tipo</th><th class="no-print">Horário e poltrona</th><th class="no-print"></th></tr></thead>
+    <tbody>
+      {% for ag in pendentes %}
+      <tr>
+        <td><strong>{{ ag.nome }}</strong></td>
+        <td style="font-size:13px;">{{ ag.num_prontuario or '—' }}</td>
+        <td style="font-size:13px; color:#4b5563;">{{ labels.get(ag.protocolo, ag.protocolo) }}</td>
+        <td>{% if ag.status == 'agendado' %}<span class="badge badge-azul" style="font-size:12px;">agendado</span>{% else %}<span class="badge" style="background:#f3f4f6; color:#6b7280; font-size:12px;">walk-in</span>{% endif %}</td>
+        <td class="no-print" style="white-space:nowrap;">{{ campos_alocacao(ag, fmt(ag.horario) if ag.horario is not none else '') }}</td>
+        <td class="no-print">
+          <form method="post" action="/remover/{{ ag.ag_id }}" style="margin:0;" onsubmit="return confirm('Remover {{ ag.nome }} deste dia?')">
+            <input type="hidden" name="data_sessao" value="{{ data }}">
+            <button type="submit" class="btn btn-ghost btn-sm" style="padding:4px 10px; font-size:13px; color:#ef4444;">✕</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- ═══════════════════════ SALÃO AGORA (só hoje) ════════════════ -->
+{% if e_hoje %}
 {% set n_pol_livres = poltronas | selectattr('status','eq','livre') | list | length %}
 {% set n_pol_reserv = poltronas | selectattr('status','eq','aguardando_puncao') | list | length %}
 <style>
@@ -89,16 +138,14 @@
     <h2 style="margin:0;">Salão agora</h2>
     <span style="font-size:13px; color:#6b7280;">{{ n_pol_livres }} livres · {{ n_pol_reserv }} reservadas para quem ainda não chegou · {{ poltronas|length }} no total · atualizado às {{ agora_txt }}</span>
     <a href="/" class="btn btn-ghost btn-sm">Atualizar</a>
-    <button class="btn btn-primary btn-sm" style="margin-left:auto;"
-      onclick="document.getElementById('modal-walkin').style.display='flex'">+ Walk-in</button>
   </div>
   <div class="salao-grid">
     {% for p in poltronas %}
-    <div class="mini-pol chair-{{ p.status }}" title="{% if p.sessao %}{{ p.sessao.paciente.nome }} — {{ status_label.get(p.status, p.status) }}{% else %}Livre{% endif %}">
+    <div class="mini-pol chair-{{ p.status }}" title="{% if p.sessao %}{{ p.sessao.paciente.nome }} — {{ fmt(p.sessao.chegada) }} — {{ status_label.get(p.status, p.status) }}{% else %}Livre{% endif %}">
       <div class="n">{{ p.num }}</div>
       {% if p.sessao %}
         <div class="nm">{{ p.sessao.paciente.nome.split()[0] }}</div>
-        <div class="st">{{ status_label.get(p.status, '') }}</div>
+        <div class="st">{{ status_label.get(p.status, '') }}{% if p.status == 'aguardando_puncao' %} {{ fmt(p.sessao.chegada) }}{% endif %}</div>
       {% else %}
         <div class="sg">{{ p.segmento }}</div>
       {% endif %}
@@ -113,130 +160,87 @@
     <span><i style="background:#ede9fe; border-color:#7c3aed;"></i>retirada</span>
     <span><i style="background:#dcfce7; border-color:#22c55e;"></i>higienização</span>
   </div>
-  <p style="font-size:12px; color:#9ca3af; margin-top:10px;">
-    Poltrona livre não significa vaga na punção: veja a capacidade por horário logo abaixo antes de aceitar um walk-in.
-    Quem ainda não foi puncionado tem poltrona e horário apenas sugeridos.
-  </p>
 </div>
-
-<!-- ═══════════════════════ CAPACIDADE POR JANELA ════════════════ -->
-<div id="bandas-container" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:12px; margin-bottom:24px;">
-  {% for b in bandas %}
-  <div class="card" style="margin-bottom:0; padding:16px 18px;"
-       data-inicio="{{ b.inicio }}" data-fim="{{ b.fim }}" data-cap="{{ b.capacidade }}">
-    <div style="font-size:13px; font-weight:700; color:#374151; margin-bottom:2px;">{{ b.label }}</div>
-    <div style="font-size:12px; color:#6b7280; margin-bottom:10px;">
-      {{ b.staff }} profissionais · cap. {{ b.capacidade }}
-    </div>
-    <div style="font-size:30px; font-weight:800; color:#1a1a2e; line-height:1;" class="banda-count">0</div>
-    <div style="font-size:11px; color:#9ca3af; margin-bottom:8px;" class="banda-frac">0 / {{ b.capacidade }}</div>
-    <div style="background:#e5e7eb; border-radius:6px; height:8px; overflow:hidden;">
-      <div class="banda-bar" style="height:100%; width:0%; border-radius:6px; transition:width .4s;"></div>
-    </div>
-  </div>
-  {% endfor %}
-</div>
-<style>
-@media (max-width: 700px) {
-  #bandas-container { grid-template-columns: repeat(2, 1fr) !important; }
-}
-</style>
+{% endif %}
 
 <!-- ═══════════════════════ TABELA PRINCIPAL ════════════════ -->
 <div class="card">
-  <h2 style="margin-bottom:16px;">Escala do dia — {{ data }}</h2>
+  <h2 style="margin-bottom:6px;">Escala do dia — {{ data }}</h2>
+  <p class="no-print" style="font-size:13px; color:#6b7280; margin-bottom:16px;">
+    Horário e poltrona são os que a equipe escolheu — mude na própria linha e salve.
+    "Fim previsto" usa o tempo do protocolo do paciente; o real fica no <a href="/relatorio?data={{ data }}">Relatório</a>.
+  </p>
   <table class="tabela-agenda">
     <thead>
       <tr>
-        <th>Chegada</th>
+        <th>Início</th>
         <th>Poltrona</th>
+        <th>Fim previsto</th>
         <th>Paciente</th>
         <th>Prontuário</th>
         <th>Telefone</th>
         <th>Protocolo</th>
-        <th>Cor</th>
         <th>Tipo</th>
         <th>Confirmação</th>
-        <th class="no-print">Ações</th>
+        <th class="no-print">Alterar</th>
+        <th class="no-print"></th>
       </tr>
     </thead>
     <tbody id="tabela-body">
       {% if sessoes %}
-        {% set ns = namespace(banda_idx=-1) %}
         {% for s in sessoes %}
           {% set ag = ag_map.get(s.paciente.nome) %}
           {% set cor = s.paciente.cor_qt %}
-          {# Detectar mudança de banda — inserir header quando chegada entra em nova janela #}
-          {% set cur_banda = namespace(found=-1) %}
-          {% for b in bandas %}
-            {% if s.chegada >= b.inicio and s.chegada < b.fim %}
-              {% set cur_banda.found = loop.index0 %}
-            {% endif %}
-          {% endfor %}
-          {% if cur_banda.found != ns.banda_idx %}
-            {% set ns.banda_idx = cur_banda.found %}
-            {% if cur_banda.found >= 0 %}
-              {% set b = bandas[cur_banda.found] %}
-              <tr class="banda-header" style="background:#f8fafc;">
-                <td colspan="10" style="padding:8px 14px; font-size:12px; font-weight:700;
-                    color:#6b7280; text-transform:uppercase; letter-spacing:.5px;
-                    border-bottom:2px solid #e5e7eb;">
-                  {{ b.label }} — {{ b.staff }} profissionais · cap. {{ b.capacidade }}
-                </td>
-              </tr>
-            {% endif %}
-          {% endif %}
           <tr class="row-{{ cor }}">
             <td class="hora">{{ fmt(s.chegada) }}</td>
-            <td><span class="poltrona-badge">{{ s.poltrona }}</span></td>
             <td>
-              {% if ag %}
-                <strong title="{{ ag.nome_mae or '' }}{% if ag.nome_mae and ag.data_nascimento %} · {% endif %}{{ ag.data_nascimento or '' }}"
-                  style="cursor:help;">{{ s.paciente.nome }}</strong>
-              {% else %}
-                <strong>{{ s.paciente.nome }}</strong>
+              <span class="poltrona-badge">{{ s.poltrona }}</span>
+              {% if sobreposicoes.get(s.paciente.nome) %}
+                <div style="font-size:11px; color:#b45309; margin-top:4px;" title="Só um aviso — o sistema não impede.">
+                  ⚠ sobrepõe com {{ sobreposicoes[s.paciente.nome] | map('truncate', 18, True, '…') | join(', ') }}
+                </div>
               {% endif %}
             </td>
-            <td style="font-size:13px; color:#374151;">{{ ag.num_prontuario if ag and ag.num_prontuario else '—' }}</td>
-            <td style="font-size:13px; color:#374151;">{{ ag.telefone if ag and ag.telefone else '—' }}</td>
-            <td style="font-size:13px; color:#4b5563;">{{ labels.get(s.paciente.protocolo, s.paciente.protocolo) }}</td>
-            <td><span class="badge badge-{{ cor }}">{{ cor_label[cor] }}</span></td>
+            <td style="font-size:13px; color:#374151;">{{ fmt(s.saida_est) }}</td>
             <td>
-              {% if ag and ag.status == 'agendado' %}
+              <strong title="{{ ag.nome_mae or '' }}{% if ag.nome_mae and ag.data_nascimento %} · {% endif %}{{ ag.data_nascimento or '' }}"
+                style="cursor:help;">{{ s.paciente.nome }}</strong>
+            </td>
+            <td style="font-size:13px; color:#374151;">{{ ag.num_prontuario or '—' }}</td>
+            <td style="font-size:13px; color:#374151;">{{ ag.telefone or '—' }}</td>
+            <td style="font-size:13px; color:#4b5563;">{{ labels.get(s.paciente.protocolo, s.paciente.protocolo) }}</td>
+            <td>
+              {% if ag.status == 'agendado' %}
                 <span class="badge badge-azul" style="font-size:12px;">agendado</span>
               {% else %}
                 <span class="badge" style="background:#f3f4f6; color:#6b7280; font-size:12px;">walk-in</span>
               {% endif %}
             </td>
             <td>
-              {% if ag %}
-                {% if ag.confirmado == 'sim' %}
-                  <span class="badge badge-verde">Confirmado</span>
-                {% elif ag.confirmado == 'nao' %}
-                  <span class="badge badge-vermelho">Não confirmou</span>
-                {% else %}
-                  <span class="badge" style="background:#f3f4f6; color:#6b7280;">Pendente</span>
-                {% endif %}
+              {% if ag.confirmado == 'sim' %}
+                <span class="badge badge-verde">Confirmado</span>
+              {% elif ag.confirmado == 'nao' %}
+                <span class="badge badge-vermelho">Não confirmou</span>
               {% else %}
                 <span class="badge" style="background:#f3f4f6; color:#6b7280;">Pendente</span>
               {% endif %}
             </td>
+            <td class="no-print" style="white-space:nowrap;">{{ campos_alocacao(ag, fmt(s.chegada)) }}</td>
             <td class="no-print">
-              {% if ag %}
-              <form method="post" action="/remover/{{ ag.ag_id }}" style="margin:0;">
+              <form method="post" action="/remover/{{ ag.ag_id }}" style="margin:0;" onsubmit="return confirm('Remover {{ ag.nome }} deste dia?')">
                 <input type="hidden" name="data_sessao" value="{{ data }}">
                 <button type="submit" class="btn btn-ghost btn-sm"
                   style="padding:4px 10px; font-size:13px; color:#ef4444;">✕</button>
               </form>
-              {% endif %}
             </td>
           </tr>
         {% endfor %}
       {% else %}
         <tr>
-          <td colspan="8">
+          <td colspan="11">
             <div class="empty">
-              Nenhum paciente adicionado. Clique em <strong>+ Walk-in</strong> para adicionar.
+              Nenhum paciente com horário e poltrona neste dia.
+              {% if pendentes %}Aloque os pacientes do quadro "Para alocar" acima.{% else %}Clique em <strong>+ Walk-in</strong> para adicionar.{% endif %}
             </div>
           </td>
         </tr>
@@ -363,10 +367,14 @@
       <!-- Linha 3: prioridades -->
       <div class="form-row" style="margin-top:10px; align-items:center;">
         <div class="field">
-          <label for="m_flexibilidade">Distância / flexibilidade</label>
-          <select id="m_flexibilidade" name="flexibilidade">
-            <option value="alta">Alta — mora perto, pode reagendar</option>
-            <option value="baixa">Baixa — veio de longe, só pode hoje</option>
+          <label for="m_horario">Horário de início</label>
+          <input type="time" id="m_horario" name="horario">
+        </div>
+        <div class="field">
+          <label for="m_poltrona">Poltrona</label>
+          <select id="m_poltrona" name="poltrona">
+            <option value="">— escolher depois —</option>
+            {% for n, seg in opcoes_poltrona %}<option value="{{ n }}">{{ n }} · {{ seg }}</option>{% endfor %}
           </select>
         </div>
         <div style="display:flex; flex-direction:column; gap:6px; padding-top:20px;">
@@ -447,31 +455,5 @@
 })();
 </script>
 
-<script>
-(function () {
-  var sessoes  = {{ sessoes_json | safe }};
-  var bandaEls = document.querySelectorAll('#bandas-container .card');
-
-  bandaEls.forEach(function (el) {
-    var inicio = parseInt(el.dataset.inicio, 10);
-    var fim    = parseInt(el.dataset.fim,    10);
-    var cap    = parseInt(el.dataset.cap,    10);
-
-    var count = sessoes.filter(function (s) {
-      return s.chegada >= inicio && s.chegada < fim;
-    }).length;
-
-    var pct   = cap > 0 ? Math.min(count / cap, 1) : 0;
-    var color = pct <= 0.70 ? '#10b981' : pct <= 0.90 ? '#f59e0b' : '#ef4444';
-
-    el.querySelector('.banda-count').textContent = count;
-    el.querySelector('.banda-frac').textContent  = count + ' / ' + cap;
-
-    var bar = el.querySelector('.banda-bar');
-    bar.style.width      = (pct * 100).toFixed(1) + '%';
-    bar.style.background = color;
-  });
-})();
-</script>
 
 {% endblock %}
