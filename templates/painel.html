@@ -150,6 +150,11 @@
               <input type="date" id="m-prox-data" name="data_proxima"
                 style="padding:8px 10px; border:1.5px solid #d1d5db; border-radius:8px;">
             </div>
+            <div>
+              <label>Horário</label>
+              <input type="time" id="m-prox-horario" name="horario"
+                style="padding:8px 10px; border:1.5px solid #d1d5db; border-radius:8px;">
+            </div>
             <button type="submit" class="btn btn-primary">Agendar</button>
           </div>
           <div id="m-duracao-hint" style="display:none; font-size:13px; color:#6b7280; margin-top:10px;"></div>
@@ -303,6 +308,7 @@ function openModal(el) {
       document.getElementById('m-prox-intervalo').value = intervalo;
       document.getElementById('m-prox-data').value = calcDataProxima(intervalo);
       document.getElementById('m-prox-data').min = HOJE;
+      document.getElementById('m-prox-horario').value = '';
       document.getElementById('m-prox-pac-id').value = el.dataset.pacienteId;
       document.getElementById('m-proxima-form').action = '/proxima/' + agId;
 

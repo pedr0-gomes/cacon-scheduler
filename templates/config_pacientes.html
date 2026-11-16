@@ -102,6 +102,11 @@
         <input type="date" id="c_data" name="data_proxima" value="{{ form.data_proxima or '' }}" min="{{ hoje }}" required>
       </div>
       <div class="field">
+        <label for="c_horario">Horário</label>
+        <input type="time" id="c_horario" name="horario_proxima" value="{{ form.horario_proxima or '' }}">
+        <div class="dica">Pode definir depois na Lista</div>
+      </div>
+      <div class="field">
         <label for="c_previos">Ciclos já feitos</label>
         <input type="number" id="c_previos" name="ciclos_previos" value="{{ form.ciclos_previos or 0 }}" min="0" max="100">
         <div class="dica">Antes de entrar no sistema</div>

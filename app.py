@@ -34,7 +34,7 @@ from database import (
     cadastrar_paciente, atualizar_paciente, remover_paciente,
     get_escala_semana, salvar_profissional, remover_profissional,
     copiar_escala, restaurar_escala_padrao,
-    get_parametros, salvar_parametros, alocar,
+    get_parametros, salvar_parametros, alocar, definir_horario,
 )
 import scheduler
 
@@ -357,17 +357,16 @@ def _data_valida(data: Optional[str]) -> str:
 
 
 @app.get("/", response_class=HTMLResponse)
-async def agenda_get(request: Request, data: Optional[str] = Query(default=None)):
-    data = _data_valida(data)
-    hoje = str(date.today())
+async def agenda_get(request: Request):
+    # Triagem é só do dia de hoje; outros dias se agendam pela Lista/Horizonte
+    data = hoje = str(date.today())
     ag_list, sessoes = _build_dia(data)
     return templates.TemplateResponse(request, "agenda.html", {
         "pacientes":         ag_list,
         "sessoes":           sessoes,
-        "pendentes":         _pendentes(ag_list),
+        "pendentes":         sorted(_pendentes(ag_list), key=lambda a: (a.get("horario") is None, a.get("horario") or 0, a["nome"])),
         "sobreposicoes":     _sobreposicoes(sessoes),
         "opcoes_poltrona":   _opcoes_poltrona(),
-        "e_hoje":            data == hoje,
         "grupos":            GRUPOS_DROPDOWN,
         "labels":            PROTOCOLO_LABEL,
         "cor_label":         COR_LABEL,
@@ -443,7 +442,7 @@ async def adicionar(
             poltrona=_poltrona(poltrona),
         )
         registrar_log("walk_in:cadastro", _usuario(request), agendamento_id=ag_id, detalhes=nome)
-    return RedirectResponse(f"/?data={data_sessao}", status_code=303)
+    return RedirectResponse("/", status_code=303)
 
 
 def _poltrona(v) -> Optional[int]:
@@ -462,21 +461,21 @@ async def alocar_post(
     alocar(ag_id, h_min, pol)
     registrar_log("alocar", _usuario(request), agendamento_id=ag_id,
                   detalhes=f"{_fmt(h_min) if h_min is not None else '—'} · poltrona {pol or '—'}")
-    return RedirectResponse(f"/?data={data_sessao}", status_code=303)
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/remover/{ag_id}")
 async def remover(request: Request, ag_id: int, data_sessao: str = Form(...)):
     cancelar_agendamento(ag_id)
     registrar_log("cancelar", _usuario(request), agendamento_id=ag_id)
-    return RedirectResponse(f"/?data={data_sessao}", status_code=303)
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/limpar")
 async def limpar(data_sessao: str = Form(...)):
     for ag in get_dia(data_sessao):
         cancelar_agendamento(ag["ag_id"])
-    return RedirectResponse(f"/?data={data_sessao}", status_code=303)
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/anotar/{ag_id}")
@@ -529,8 +528,9 @@ async def proxima_sessao(
     paciente_id: int = Form(...),
     intervalo_dias: int = Form(...),
     data_proxima: str = Form(...),
+    horario: Optional[str] = Form(None),
 ):
-    resultado = agendar_proxima(paciente_id, data_proxima, intervalo_dias)
+    resultado = agendar_proxima(paciente_id, data_proxima, intervalo_dias, _hhmm(horario))
     registrar_log(
         f"agendar_proxima:{resultado['status']}", _usuario(request),
         agendamento_id=ag_id, detalhes=resultado.get("data"),
@@ -545,11 +545,9 @@ async def proxima_sessao(
 async def confirmacao_get(request: Request):
     from datetime import timedelta
     data = str(date.today() + timedelta(days=1))
-    ag_list, sessoes = _build_dia(data)
-    sessao_por_nome = {s.paciente.nome: s for s in sessoes}
+    ag_list = sorted(get_dia(data), key=lambda a: (a.get("horario") is None, a.get("horario") or 0, a["nome"]))
     return templates.TemplateResponse(request, "confirmacao.html", {
         "pacientes":   ag_list,
-        "sessoes_map": sessao_por_nome,
         "data":        data,
         "hoje":        str(date.today()),
         "fmt":         _fmt,
@@ -577,6 +575,7 @@ async def agendar_pelo_horizonte(
     intervalo_dias: int = Form(...),
     qt_override_min: Optional[int] = Form(None),
     dias: int = Form(default=30),
+    horario: Optional[str] = Form(None),
 ):
     if qt_override_min:
         from database import get_db
@@ -585,7 +584,7 @@ async def agendar_pelo_horizonte(
                 "UPDATE pacientes SET qt_override_min=? WHERE id=?",
                 (qt_override_min, paciente_id)
             )
-    resultado = agendar_proxima(paciente_id, data_proxima, intervalo_dias)
+    resultado = agendar_proxima(paciente_id, data_proxima, intervalo_dias, _hhmm(horario))
     registrar_log(
         f"agendar_horizonte:{resultado['status']}", _usuario(request),
         detalhes=f"pac:{paciente_id} data:{resultado.get('data')}",
@@ -609,33 +608,54 @@ async def horizonte_get(request: Request, dias: int = Query(default=30)):
 # ---------------------------------------------------------------------------
 # Lista para o profissional do agendamento
 # ---------------------------------------------------------------------------
+def _ordem_horario(ag: dict):
+    return (ag.get("horario") is None, ag.get("horario") or 0, ag["nome"])
+
+
+def _dias_agendados(dias: int) -> list:
+    """Próximos dias com seus agendamentos em ordem de horário (sem horário no fim)
+    e a contagem de pacientes por hora — só informativa, nada é limitado."""
+    from datetime import timedelta
+    _DIAS = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
+    saida = []
+    for d in range(dias):
+        data = date.today() + timedelta(days=d)
+        ags = sorted(get_dia(data.isoformat()), key=_ordem_horario)
+        if not ags:
+            continue
+        por_hora: dict = {}
+        for ag in ags:
+            if ag.get("horario") is not None:
+                hh = ag["horario"] // 60
+                por_hora[hh] = por_hora.get(hh, 0) + 1
+        saida.append({
+            "data_iso":  data.isoformat(),
+            "data_fmt":  f"{_DIAS[data.weekday()]}, {data.strftime('%d/%m/%Y')}",
+            "agendamentos": ags,
+            "por_hora":  sorted(por_hora.items()),
+            "sem_horario": sum(1 for a in ags if a.get("horario") is None),
+        })
+    return saida
+
+
 @app.get("/lista", response_class=HTMLResponse)
 async def lista_get(request: Request, dias: int = Query(default=7)):
-    from datetime import date, timedelta
-    hoje = date.today()
-    registros = []
-    for d in range(dias):
-        data = hoje + timedelta(days=d)
-        data_str = data.isoformat()
-        ag_list, sessoes = _build_dia(data_str)
-        sessao_por_nome = {s.paciente.nome: s for s in sessoes}
-        for ag in ag_list:
-            sessao = sessao_por_nome.get(ag["nome"])
-            horario_chegada = _fmt(sessao.chegada) if sessao else "—"
-            registros.append({
-                "nome":            ag["nome"],
-                "num_prontuario":  ag.get("num_prontuario") or "",
-                "telefone":        ag.get("telefone") or "",
-                "data_iso":        data_str,
-                "data_fmt":        data.strftime("%d/%m/%Y"),
-                "horario_chegada": horario_chegada,
-            })
     return templates.TemplateResponse(request, "lista.html", {
-        "registros":  registros,
+        "dias_lista": _dias_agendados(dias),
+        "labels":     PROTOCOLO_LABEL,
         "dias":       dias,
-        "offset_h":   scheduler.OFFSET_CHEGADA_HOSPITAL // 60,
-        "hoje":       str(hoje),
+        "hoje":       str(date.today()),
+        "fmt":        _fmt,
     })
+
+
+@app.post("/lista/horario/{ag_id}")
+async def lista_horario(request: Request, ag_id: int, horario: Optional[str] = Form(None), dias: int = Form(7)):
+    h_min = _hhmm(horario)
+    definir_horario(ag_id, h_min)
+    registrar_log("agendar_horario", _usuario(request), agendamento_id=ag_id,
+                  detalhes=_fmt(h_min) if h_min is not None else "—")
+    return RedirectResponse(f"/lista?dias={dias}#ag-{ag_id}", status_code=303)
 
 
 @app.get("/lista.csv")
@@ -648,12 +668,8 @@ async def lista_csv(request: Request, dias: int = Query(default=7)):
     writer.writerow(["Nome", "Prontuário", "Data", "Horário de chegada", "Telefone"])
     for d in range(dias):
         data = hoje + timedelta(days=d)
-        data_str = data.isoformat()
-        ag_list, sessoes = _build_dia(data_str)
-        sessao_por_nome = {s.paciente.nome: s for s in sessoes}
-        for ag in ag_list:
-            sessao = sessao_por_nome.get(ag["nome"])
-            horario_chegada = _fmt(sessao.chegada) if sessao else ""
+        for ag in sorted(get_dia(data.isoformat()), key=_ordem_horario):
+            horario_chegada = _fmt(ag["horario"]) if ag.get("horario") is not None else ""
             writer.writerow([
                 ag["nome"],
                 ag.get("num_prontuario") or "",
@@ -980,6 +996,7 @@ def _form_de_paciente(p: dict) -> dict:
     form["protocolo"]        = p["protocolo"] if conhecido else "outro"
     form["protocolo_custom"] = "" if conhecido else p["protocolo"]
     form["data_proxima"]     = p.get("proxima_sessao") or ""
+    form["horario_proxima"]  = _fmt(p["proxima_horario"]) if p.get("proxima_horario") is not None else ""
     if conhecido:
         cor, bucket = PROTOCOLO[p["protocolo"]]
         form["pre_override"]    = p["pre_override"] or bucket
@@ -1007,7 +1024,7 @@ async def config_pacientes_criar(request: Request):
         erro = f"Já existe um paciente chamado {dados['nome']}. Para corrigir, use Editar na lista abaixo."
     if erro:
         return _render_pacientes(request, form=form, erro=erro, status_code=422)
-    pac_id = cadastrar_paciente(dados, data_proxima)
+    pac_id = cadastrar_paciente(dados, data_proxima, _hhmm(form.get("horario_proxima")))
     registrar_log("cadastro:paciente", _usuario(request), detalhes=f"pac:{pac_id} {dados['nome']}")
     return RedirectResponse("/configuracao/pacientes?" + urlencode({"ok": dados["nome"]}), status_code=303)
 
@@ -1024,7 +1041,7 @@ async def config_pacientes_atualizar(request: Request, paciente_id: int):
         erro = f"Já existe outro paciente chamado {dados['nome']}."
     if erro:
         return _render_pacientes(request, form=form, editar=p, erro=erro, status_code=422)
-    atualizar_paciente(paciente_id, dados, data_proxima)
+    atualizar_paciente(paciente_id, dados, data_proxima, _hhmm(form.get("horario_proxima")))
     registrar_log("cadastro:edicao", _usuario(request), detalhes=f"pac:{paciente_id} {dados['nome']}")
     return RedirectResponse("/configuracao/pacientes?" + urlencode({"ok": dados["nome"]}), status_code=303)
 

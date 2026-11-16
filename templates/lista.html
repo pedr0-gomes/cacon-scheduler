@@ -6,7 +6,7 @@
   <div>
     <h1>Lista de Agendamentos</h1>
     <p class="subtitulo">
-      Próximos {{ dias }} dias · Horário = o marcado na Triagem ("—" = ainda sem horário)
+      Próximos {{ dias }} dias · defina aqui o horário de cada paciente. A poltrona é dada no dia, na Triagem.
     </p>
   </div>
   <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -18,54 +18,61 @@
   </div>
 </div>
 
-{% if not registros %}
+{% if not dias_lista %}
 <div class="card">
   <div class="empty">Nenhum paciente agendado nos próximos {{ dias }} dias.</div>
 </div>
-{% else %}
+{% endif %}
+
+{% for dia in dias_lista %}
 <div class="card" style="padding:0; overflow:hidden;">
-  <table class="tabela-agenda" style="table-layout:fixed; width:100%;">
-    <colgroup>
-      <col style="width:28%;">
-      <col style="width:14%;">
-      <col style="width:13%;">
-      <col style="width:13%;">
-      <col style="width:32%;">
-    </colgroup>
+  <div style="background:#f3f4f6; padding:10px 14px; display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px;">
+    <strong style="font-size:13px; text-transform:uppercase; letter-spacing:.5px; color:#374151;">{{ dia.data_fmt }}</strong>
+    <span style="font-size:13px; color:#6b7280;">{{ dia.agendamentos|length }} paciente(s)</span>
+    {% if dia.sem_horario %}
+      <span style="font-size:13px; color:#b45309; font-weight:600;">{{ dia.sem_horario }} sem horário</span>
+    {% endif %}
+    {% if dia.por_hora %}
+      <span style="font-size:12px; color:#6b7280;" title="Quantos pacientes começam em cada hora (só informação)">
+        Por hora:
+        {% for hh, n in dia.por_hora %}<span style="display:inline-block; background:#fff; border:1px solid #e5e7eb; border-radius:6px; padding:1px 6px; margin:2px 2px 0 0;">{{ '%02d' % hh }}h · <strong>{{ n }}</strong></span>{% endfor %}
+      </span>
+    {% endif %}
+  </div>
+  <table class="tabela-agenda" style="width:100%;">
     <thead>
       <tr>
+        <th>Horário</th>
         <th>Nome</th>
         <th>Prontuário</th>
-        <th>Data</th>
-        <th>Chegada</th>
         <th>Telefone</th>
+        <th>Protocolo</th>
+        <th class="no-print">Alterar horário</th>
       </tr>
     </thead>
     <tbody>
-      {% set ns = namespace(data_atual='') %}
-      {% for r in registros %}
-        {% if r.data_iso != ns.data_atual %}
-          {% set ns.data_atual = r.data_iso %}
-          <tr>
-            <td colspan="5" style="background:#f3f4f6; font-size:12px; font-weight:700;
-                color:#6b7280; text-transform:uppercase; letter-spacing:.5px; padding:8px 14px;">
-              {{ r.data_fmt }}
-            </td>
-          </tr>
-        {% endif %}
-        <tr>
-          <td><strong>{{ r.nome }}</strong></td>
-          <td style="font-size:13px; color:#374151;">{{ r.num_prontuario or '—' }}</td>
-          <td style="font-size:13px; color:#374151;">{{ r.data_fmt }}</td>
-          <td style="font-weight:700; font-size:15px;">{{ r.horario_chegada }}</td>
-          <td style="font-size:13px; color:#374151;">{{ r.telefone or '—' }}</td>
-        </tr>
+      {% for ag in dia.agendamentos %}
+      <tr id="ag-{{ ag.ag_id }}">
+        <td style="font-weight:700; font-size:15px;">{{ fmt(ag.horario) if ag.horario is not none else '—' }}</td>
+        <td><strong>{{ ag.nome }}</strong></td>
+        <td style="font-size:13px; color:#374151;">{{ ag.num_prontuario or '—' }}</td>
+        <td style="font-size:13px; color:#374151;">{{ ag.telefone or '—' }}</td>
+        <td style="font-size:13px; color:#4b5563;">{{ labels.get(ag.protocolo, ag.protocolo) }}</td>
+        <td class="no-print" style="white-space:nowrap;">
+          <form method="post" action="/lista/horario/{{ ag.ag_id }}" style="margin:0; display:flex; gap:6px; align-items:center;">
+            <input type="hidden" name="dias" value="{{ dias }}">
+            <input type="time" name="horario" value="{{ fmt(ag.horario) if ag.horario is not none else '' }}" style="width:110px; padding:4px 6px;">
+            <button type="submit" class="btn btn-primary btn-sm" style="padding:4px 10px;">Salvar</button>
+          </form>
+        </td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+{% endfor %}
+
 <p style="font-size:12px; color:#9ca3af; margin-top:8px;" class="no-print">
-  {{ registros | length }} paciente(s) · gerado em {{ hoje }}
+  A contagem por hora é só para enxergar o dia — o sistema não limita quantos pacientes cabem em cada horário. Gerado em {{ hoje }}.
 </p>
-{% endif %}
 {% endblock %}

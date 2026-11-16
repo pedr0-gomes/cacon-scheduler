@@ -52,9 +52,8 @@
     </thead>
     <tbody>
       {% for ag in pacientes %}
-      {% set s = sessoes_map.get(ag.nome) %}
-      <tr>
-        <td class="hora">{{ fmt(s.chegada) if s else '—' }}</td>
+            <tr>
+        <td class="hora">{{ fmt(ag.horario) if ag.horario is not none else '—' }}</td>
         <td><strong>{{ ag.nome }}</strong></td>
         <td style="font-size:13px; color:#4b5563;">{{ labels.get(ag.protocolo, ag.protocolo) }}</td>
         <td>

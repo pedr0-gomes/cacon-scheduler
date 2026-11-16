@@ -43,14 +43,10 @@
 
 <!-- ═══════════════════════ CABEÇALHO ═══════════════════════ -->
 <h1>Triagem</h1>
-<p class="subtitulo">{{ data_legivel }}{% if not e_hoje %} · <a href="/">voltar para hoje</a>{% endif %}</p>
+<p class="subtitulo">{{ data_legivel }} · só o dia de hoje — os próximos dias se agendam na <a href="/lista">Lista</a></p>
 
 <!-- ═══════════════════════ BARRA DE AÇÕES ══════════════════ -->
 <div class="no-print" style="display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
-  <form method="get" action="/" style="display:flex; align-items:center; gap:8px; margin:0;">
-    <label for="sel-data" style="font-size:13px; font-weight:600;">Dia</label>
-    <input type="date" id="sel-data" name="data" value="{{ data }}" onchange="this.form.submit()">
-  </form>
   <button class="btn btn-primary btn-sm" onclick="document.getElementById('modal-walkin').style.display='flex'">
     + Walk-in
   </button>
@@ -91,16 +87,17 @@
 <div class="card" style="border-left:4px solid #eab308;">
   <h2 style="margin-bottom:6px;">Para alocar ({{ pendentes|length }})</h2>
   <p style="font-size:13px; color:#6b7280; margin-bottom:12px;">
-    Pacientes deste dia ainda sem horário ou sem poltrona. Escolha os dois e salve — não há limite de horário nem de quantidade.
+    Pacientes de hoje ainda sem poltrona (ou sem horário). O horário agendado já vem preenchido — confira, escolha a poltrona e salve. Não há limite de horário nem de quantidade.
   </p>
   <table class="tabela-agenda">
-    <thead><tr><th>Paciente</th><th>Prontuário</th><th>Protocolo</th><th>Tipo</th><th class="no-print">Horário e poltrona</th><th class="no-print"></th></tr></thead>
+    <thead><tr><th>Paciente</th><th>Prontuário</th><th>Protocolo</th><th>Horário agendado</th><th>Tipo</th><th class="no-print">Horário e poltrona</th><th class="no-print"></th></tr></thead>
     <tbody>
       {% for ag in pendentes %}
       <tr>
         <td><strong>{{ ag.nome }}</strong></td>
         <td style="font-size:13px;">{{ ag.num_prontuario or '—' }}</td>
         <td style="font-size:13px; color:#4b5563;">{{ labels.get(ag.protocolo, ag.protocolo) }}</td>
+        <td>{{ fmt(ag.horario) if ag.horario is not none else '—' }}</td>
         <td>{% if ag.status == 'agendado' %}<span class="badge badge-azul" style="font-size:12px;">agendado</span>{% else %}<span class="badge" style="background:#f3f4f6; color:#6b7280; font-size:12px;">walk-in</span>{% endif %}</td>
         <td class="no-print" style="white-space:nowrap;">{{ campos_alocacao(ag, fmt(ag.horario) if ag.horario is not none else '') }}</td>
         <td class="no-print">
@@ -116,8 +113,7 @@
 </div>
 {% endif %}
 
-<!-- ═══════════════════════ SALÃO AGORA (só hoje) ════════════════ -->
-{% if e_hoje %}
+<!-- ═══════════════════════ SALÃO AGORA ════════════════ -->
 {% set n_pol_livres = poltronas | selectattr('status','eq','livre') | list | length %}
 {% set n_pol_reserv = poltronas | selectattr('status','eq','aguardando_puncao') | list | length %}
 <style>
@@ -161,7 +157,6 @@
     <span><i style="background:#dcfce7; border-color:#22c55e;"></i>higienização</span>
   </div>
 </div>
-{% endif %}
 
 <!-- ═══════════════════════ TABELA PRINCIPAL ════════════════ -->
 <div class="card">

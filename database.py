@@ -287,6 +287,12 @@ def fixar_poltrona(ag_id: int, poltrona: int | None):
         db.execute("UPDATE agendamentos SET poltrona=? WHERE id=?", (poltrona, ag_id))
 
 
+def definir_horario(ag_id: int, horario: int | None):
+    """Agendamento: só o horário (a poltrona é dada no dia, na Triagem)."""
+    with get_db() as db:
+        db.execute("UPDATE agendamentos SET horario=? WHERE id=?", (horario, ag_id))
+
+
 def alocar(ag_id: int, horario: int | None, poltrona: int | None):
     """Alocação manual pela triagem: grava horário (min desde 0h) e poltrona.
     Sem nenhuma regra — vazio limpa o campo."""
@@ -345,7 +351,7 @@ def _proximo_agendamento(db, paciente_id: int):
     """Próxima sessão (hoje ou depois) ainda não iniciada — a que o cadastro edita."""
     from datetime import date
     return db.execute("""
-        SELECT a.id, a.data_sessao FROM agendamentos a
+        SELECT a.id, a.data_sessao, a.horario FROM agendamentos a
         WHERE a.paciente_id = ? AND a.data_sessao >= ? AND a.status != 'cancelado'
           AND NOT EXISTS (SELECT 1 FROM eventos e WHERE e.agendamento_id = a.id)
         ORDER BY a.data_sessao LIMIT 1
@@ -373,10 +379,11 @@ def get_paciente(paciente_id: int) -> dict | None:
         if not r:
             return None
         prox = _proximo_agendamento(db, paciente_id)
-        return {**dict(r), "proxima_sessao": prox["data_sessao"] if prox else None}
+        return {**dict(r), "proxima_sessao": prox["data_sessao"] if prox else None,
+                "proxima_horario": prox["horario"] if prox else None}
 
 
-def cadastrar_paciente(dados: dict, data_proxima: str) -> int:
+def cadastrar_paciente(dados: dict, data_proxima: str, horario: int | None = None) -> int:
     """Carga inicial: cria o paciente e a próxima sessão já como 'agendado'."""
     valores = {c: dados.get(c) for c in CAMPOS_PACIENTE}
     with get_db() as db:
@@ -385,13 +392,13 @@ def cadastrar_paciente(dados: dict, data_proxima: str) -> int:
         cur = db.execute(f"INSERT INTO pacientes ({cols}) VALUES ({marcas})", tuple(valores.values()))
         pac_id = cur.lastrowid
         db.execute(
-            "INSERT INTO agendamentos (paciente_id, data_sessao, status) VALUES (?, ?, 'agendado')",
-            (pac_id, data_proxima),
+            "INSERT INTO agendamentos (paciente_id, data_sessao, status, horario) VALUES (?, ?, 'agendado', ?)",
+            (pac_id, data_proxima, horario),
         )
         return pac_id
 
 
-def atualizar_paciente(paciente_id: int, dados: dict, data_proxima: str):
+def atualizar_paciente(paciente_id: int, dados: dict, data_proxima: str, horario: int | None = None):
     """Corrige o cadastro e move (ou cria) a próxima sessão ainda não iniciada."""
     valores = {c: dados.get(c) for c in CAMPOS_PACIENTE}
     with get_db() as db:
@@ -399,11 +406,11 @@ def atualizar_paciente(paciente_id: int, dados: dict, data_proxima: str):
         db.execute(f"UPDATE pacientes SET {sets} WHERE id=?", (*valores.values(), paciente_id))
         prox = _proximo_agendamento(db, paciente_id)
         if prox:
-            db.execute("UPDATE agendamentos SET data_sessao=? WHERE id=?", (data_proxima, prox["id"]))
+            db.execute("UPDATE agendamentos SET data_sessao=?, horario=? WHERE id=?", (data_proxima, horario, prox["id"]))
         else:
             db.execute(
-                "INSERT INTO agendamentos (paciente_id, data_sessao, status) VALUES (?, ?, 'agendado')",
-                (paciente_id, data_proxima),
+                "INSERT INTO agendamentos (paciente_id, data_sessao, status, horario) VALUES (?, ?, 'agendado', ?)",
+                (paciente_id, data_proxima, horario),
             )
 
 
@@ -694,7 +701,7 @@ def duracao_mediana_qt(paciente_id: int) -> int | None:
     return int((duracoes[mid - 1] + duracoes[mid]) / 2)
 
 
-def agendar_proxima(paciente_id: int, data_proxima: str, intervalo_dias: int) -> dict:
+def agendar_proxima(paciente_id: int, data_proxima: str, intervalo_dias: int, horario: int | None = None) -> dict:
     """
     Retorna dict com:
       - 'status': 'agendado' | 'concluido' | 'data_invalida'
@@ -732,9 +739,11 @@ def agendar_proxima(paciente_id: int, data_proxima: str, intervalo_dias: int) ->
         ).fetchone()
         if not exists:
             db.execute(
-                "INSERT INTO agendamentos (paciente_id, data_sessao, status) VALUES (?,?,'agendado')",
-                (paciente_id, data_disponivel)
+                "INSERT INTO agendamentos (paciente_id, data_sessao, status, horario) VALUES (?,?,'agendado',?)",
+                (paciente_id, data_disponivel, horario)
             )
+        elif horario is not None:
+            db.execute("UPDATE agendamentos SET horario=? WHERE id=?", (horario, exists["id"]))
     return {"status": "agendado", "data": data_disponivel}
 
 
