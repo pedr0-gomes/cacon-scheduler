@@ -10,7 +10,7 @@ O menu tem só o que se usa todo dia:
 
 | Botão | Endereço | Quem usa | Para quê |
 |---|---|---|---|
-| **Hoje** | `/` | Enfermeiro de triagem | Dar a poltrona a quem vem hoje, cadastrar walk-in, ajustar horário |
+| **Hoje** | `/` | Enfermeiro de triagem | Escolher a poltrona de quem vem hoje, cadastrar walk-in, ajustar horário |
 | **Salão** | `/painel` | Técnicos e enfermeiros do salão | Registrar as etapas de cada paciente |
 | **Agenda** | `/lista` | Triagem / agendamento | Ver os próximos dias, marcar horário, confirmar presença, agendar quem está esperando |
 | **Relatório** | `/relatorio` | Farmacêutica / coordenação | Previsto × real, no fim do expediente |
@@ -44,7 +44,7 @@ O horário é o que foi marcado. Se o paciente precisa chegar antes por causa da
 
 ## Hoje — o dia de hoje
 
-1. **Dar poltrona** (quadro amarelo, só aparece quando há alguém): pacientes de hoje que ainda não têm poltrona. Confira o horário, escolha a poltrona e clique em **Salvar**
+1. **Aguardando poltrona** (quadro amarelo, só aparece quando há alguém): pacientes de hoje que ainda não têm poltrona. Confira o horário, escolha a poltrona e clique em **Salvar**
 2. **Pacientes do dia:** quem já tem poltrona, em ordem de horário, com a **situação** e o horário em que deve terminar. Para mudar horário ou poltrona, clique em **Alterar**; na mesma janela há **Tirar da lista de hoje** para quem não veio
 3. Se dois pacientes ficarem na mesma poltrona em horários que se cruzam, aparece **⚠ mesma poltrona que…**. É só um aviso: o sistema não impede
 4. **Poltronas agora** mostra cada poltrona com o paciente e a situação — ajuda a escolher uma poltrona livre
@@ -61,7 +61,7 @@ Clique em **+ Walk-in**. Nome e protocolo são obrigatórios; horário, poltrona
 |---|---|---|
 | Nome do paciente | Sim | |
 | Protocolo | Sim | Escolha da lista ou "Outro protocolo..." para protocolo fora da lista. Os tempos de pré-QT e QT viram o **previsto** do relatório |
-| Horário e poltrona | Não | Se ficarem vazios, o paciente vai para **Dar poltrona** |
+| Horário e poltrona | Não | Se ficarem vazios, o paciente vai para **Aguardando poltrona** |
 | Total de ciclos | Recomendado | Usado para saber quando o tratamento termina |
 | Ciclos já feitos | Se já estava em tratamento | Só vale para paciente novo no sistema; sem ele a contagem começa do zero. Para quem já tem cadastro, corrija em Configuração → Pacientes → Editar |
 | Número de prontuário | Recomendado | |
@@ -111,7 +111,7 @@ Exemplo: total 4h00 → 5h00, **+60 min**; na mesma linha, pré-QT **+30 min** m
 
 **O sistema não limita.** Não há teto de pacientes por dia, vaga de walk-in nem horário proibido. Quem organiza o salão é a equipe; o sistema registra e mede.
 
-**Paciente não confirmou mas apareceu.** Ele continua na lista do dia: é só dar a poltrona em Hoje. A confirmação não tira ninguém da lista.
+**Paciente não confirmou mas apareceu.** Ele continua na lista do dia: é só escolher a poltrona em Hoje. A confirmação não tira ninguém da lista.
 
 **Protocolo novo não está na lista.** Use "Outro protocolo..." no modal. Informe a duração estimada da QT para o previsto do relatório fazer sentido. Para entrar na lista fixa, o protocolo precisa ser adicionado em `scheduler.py` (`PROTOCOLO`) e `app.py` (`PROTOCOLO_LABEL`).
 

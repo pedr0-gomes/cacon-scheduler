@@ -35,7 +35,7 @@
 <!-- ═══ 1. DAR POLTRONA ═══ -->
 {% if pendentes %}
 <div class="card" style="border-left:6px solid #f59e0b;">
-  <h2>Dar poltrona ({{ pendentes|length }})</h2>
+  <h2>Aguardando poltrona ({{ pendentes|length }})</h2>
   <p class="nota">Pacientes de hoje que ainda não têm poltrona. Confira o horário, escolha a poltrona e salve.</p>
   {% for ag in pendentes %}
   <form method="post" action="/alocar/{{ ag.ag_id }}"
