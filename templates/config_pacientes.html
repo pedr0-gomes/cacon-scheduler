@@ -9,7 +9,7 @@
   <ol>
     <li>Pegue a ficha do paciente e preencha o formulário. Só os campos com <strong>*</strong> são obrigatórios.</li>
     <li>Em <strong>Ciclos já feitos</strong>, informe quantas sessões o paciente já fez antes de entrar no sistema — assim o sistema sabe quando o tratamento termina. Cada ida à poltrona conta 1.</li>
-    <li>Clique em <strong>Salvar e cadastrar o próximo</strong>. O paciente aparece na lista abaixo e a sessão já entra na Confirmação, no Horizonte e na Lista de agendamentos.</li>
+    <li>Clique em <strong>Salvar e cadastrar o próximo</strong>. O paciente aparece na lista abaixo e a sessão já aparece na Agenda.</li>
   </ol>
   Errou algo? Clique em <strong>Editar</strong> na lista. Pacientes novos do dia a dia continuam entrando pelo <strong>+ Walk-in</strong> em Hoje.
 </div>
@@ -104,7 +104,7 @@
       <div class="field">
         <label for="c_horario">Horário</label>
         <input type="time" id="c_horario" name="horario_proxima" value="{{ form.horario_proxima or '' }}">
-        <div class="dica">Pode definir depois na Lista</div>
+        <div class="dica">Pode definir depois na Agenda</div>
       </div>
       <div class="field">
         <label for="c_previos">Ciclos já feitos</label>
@@ -122,16 +122,9 @@
     </div>
 
     <div class="form-row" style="margin-top:10px; align-items:center;">
-      <div class="field">
-        <label for="c_flex">Distância / flexibilidade</label>
-        <select id="c_flex" name="flexibilidade">
-          <option value="alta"  {% if form.flexibilidade != 'baixa' %}selected{% endif %}>Alta — mora perto, pode reagendar</option>
-          <option value="baixa" {% if form.flexibilidade == 'baixa' %}selected{% endif %}>Baixa — vem de longe</option>
-        </select>
-      </div>
       <div style="padding-top:20px;">
-        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; font-size:13px;">
-          <input type="checkbox" name="is_convenio" value="1" style="width:16px; height:16px;"
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; font-size:16px;">
+          <input type="checkbox" name="is_convenio" value="1" style="width:18px; height:18px;"
             {% if form.is_convenio and form.is_convenio not in ('0', 0) %}checked{% endif %}>
           Convênio
         </label>

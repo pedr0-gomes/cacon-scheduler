@@ -4,50 +4,26 @@
 {% block nav %}
 <nav>
   <span class="nav-brand">CACON</span>
-  <a href="/login" style="margin-left:auto; font-size:13px; color:#aab4c8;">Entrar no sistema</a>
+  <a href="/login" style="margin-left:auto; font-size:16px; color:#fff;">Entrar no sistema</a>
 </nav>
 {% endblock %}
+
+{% block container_class %}largo{% endblock %}
 
 {% block content %}
 {% set n_livre    = poltronas | selectattr('status', 'eq', 'livre') | list | length %}
 {% set n_ocupadas = poltronas | length - n_livre %}
 
-<div style="margin-bottom:20px;">
-  <h1 style="margin-bottom:2px;">Salão</h1>
-  <p class="subtitulo" style="margin:0;">{{ data }} · Toque na poltrona para registrar a etapa</p>
+<div style="display:flex; align-items:center; gap:14px 24px; flex-wrap:wrap; margin-bottom:12px;">
+  <h1 style="margin:0;">Salão</h1>
+  <span style="font-size:18px; color:#374151;"><strong>{{ n_ocupadas }}</strong> ocupadas · <strong>{{ n_livre }}</strong> livres</span>
+  <span style="font-size:16px; color:#6b7280;">Toque na poltrona para registrar a etapa</span>
+  {% if n_sem_poltrona %}
+    <a href="/" style="margin-left:auto; background:#fef3c7; color:#92400e; border:1.5px solid #f59e0b; border-radius:10px; padding:8px 14px; font-weight:700; text-decoration:none;">
+      {{ n_sem_poltrona }} paciente(s) de hoje sem poltrona →
+    </a>
+  {% endif %}
 </div>
-
-<!-- Vitals bar -->
-<div class="vitals-bar" style="margin-bottom:20px;">
-  <div class="vital-item">
-    <div class="vital-num">{{ poltronas | length }}</div>
-    <div class="vital-label">Total</div>
-  </div>
-  <div class="vital-item">
-    <div class="vital-num" style="color:#1e40af;">{{ n_ocupadas }}</div>
-    <div class="vital-label">Ocupadas</div>
-  </div>
-  <div class="vital-item">
-    <div class="vital-num" style="color:#15803d;">{{ n_livre }}</div>
-    <div class="vital-label">Livres</div>
-  </div>
-</div>
-
-{% if n_sem_poltrona %}
-<div class="card" style="margin-bottom:20px; padding:12px 18px; border-left:4px solid #eab308;">
-  {{ n_sem_poltrona }} paciente(s) de hoje ainda sem horário ou poltrona —
-  <a href="/">dar a poltrona em Hoje</a>.
-</div>
-{% endif %}
-
-{% if not poltronas or poltronas|selectattr("sessao")|list|length == 0 %}
-<div class="card">
-  <div class="empty">
-    Nenhum paciente alocado em poltrona hoje.<br>
-    <a href="/" class="btn btn-primary" style="margin-top:16px; display:inline-flex;">← Ir para Hoje</a>
-  </div>
-</div>
-{% endif %}
 
 <div class="painel-grid">
 {% for pol in poltronas %}
@@ -77,18 +53,22 @@
     <div class="chair-num">{{ pol.num }}</div>
     {% if pol.sessao and pol.status != 'livre' %}
       <div class="chair-nome">{{ pol.sessao.paciente.nome.split()[0] }}</div>
-      {% if pol.status == 'aguardando_puncao' %}<div style="font-size:11px; color:#6b7280;">{{ fmt(pol.sessao.chegada) }}</div>{% endif %}
+      {% if pol.status == 'aguardando_puncao' %}
+        <div class="chair-hora">chega {{ fmt(pol.sessao.chegada) }}</div>
+      {% else %}
+        <div class="chair-status">{{ status_label[pol.status] }}</div>
+      {% endif %}
     {% else %}
-      <div class="chair-nome" style="color:#d1d5db;">—</div>
+      <div class="chair-status">livre</div>
     {% endif %}
-    <div class="chair-status">{{ status_label[pol.status] }}</div>
   </div>
+  {% if pol.sessao and pol.status not in ('livre', 'aguardando_puncao') %}
   <div class="chair-bar-wrap">
     <div class="chair-bar-fill"
-      data-puncao-time="{{ pol.evs.get('punção', '') if pol.status != 'livre' else '' }}"
-      data-total-min="{{ (pol.sessao.saida_est - pol.sessao.chegada) if pol.sessao and pol.status != 'livre' else 0 }}"></div>
+      data-puncao-time="{{ pol.evs.get('punção', '') }}"
+      data-total-min="{{ pol.sessao.saida_est - pol.sessao.chegada }}"></div>
   </div>
-  <div class="chair-bar-pct"></div>
+  {% endif %}
 </div>
 {% endfor %}
 </div>
@@ -125,40 +105,28 @@
       <form id="m-anotar-form" method="post" style="margin-top:14px;">
         <input type="hidden" name="next" value="/painel">
         <div class="m-anotar">
-          <input type="text" id="m-anotar-input" name="texto" placeholder="Anotar intercorrência...">
-          <button type="submit" class="btn btn-ghost btn-sm">Anotar</button>
+          <input type="text" id="m-anotar-input" name="texto" placeholder="Anotar intercorrência (reação, troca de poltrona…)">
+          <button type="submit" class="btn btn-ghost btn-sm">Salvar anotação</button>
         </div>
       </form>
 
       <!-- Próxima sessão (aparece após retirada, se não agendada) -->
       <div id="m-proxima" style="display:none; margin-top:16px; padding-top:16px; border-top:1.5px solid #e5e7eb;">
-        <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Próxima sessão</div>
+        <div style="font-weight:800; font-size:18px; margin-bottom:10px;">Agendar a próxima sessão</div>
         <form id="m-proxima-form" method="post">
           <input type="hidden" id="m-prox-pac-id" name="paciente_id">
-          <div class="form-row" style="align-items:flex-end; flex-wrap:wrap; gap:10px;">
+          <input type="hidden" id="m-prox-intervalo" name="intervalo_dias">
+          <div class="form-row" style="align-items:flex-end; gap:12px;">
             <div>
-              <label>Intervalo</label>
-              <div style="display:flex; align-items:center; gap:6px;">
-                <input type="number" id="m-prox-intervalo" name="intervalo_dias"
-                  min="1" max="365"
-                  style="width:70px; padding:8px 10px; border:1.5px solid #d1d5db; border-radius:8px;">
-                <span style="font-size:13px; color:#6b7280;">dias</span>
-              </div>
+              <label for="m-prox-data">Data</label>
+              <input type="date" id="m-prox-data" name="data_proxima" required>
             </div>
             <div>
-              <label>Data proposta</label>
-              <input type="date" id="m-prox-data" name="data_proxima"
-                style="padding:8px 10px; border:1.5px solid #d1d5db; border-radius:8px;">
-            </div>
-            <div>
-              <label>Horário</label>
-              <input type="time" id="m-prox-horario" name="horario"
-                style="padding:8px 10px; border:1.5px solid #d1d5db; border-radius:8px;">
+              <label for="m-prox-horario">Horário</label>
+              <input type="time" id="m-prox-horario" name="horario">
             </div>
             <button type="submit" class="btn btn-primary">Agendar</button>
           </div>
-          <div id="m-duracao-hint" style="display:none; font-size:13px; color:#6b7280; margin-top:10px;"></div>
-          <input type="hidden" id="m-prox-qt-override" name="qt_override_min" disabled>
         </form>
       </div>
     </div>
@@ -288,7 +256,7 @@ function openModal(el) {
       ${EV_LABELS[ev]} ✓ ${escapeHtml(time)}
       <form method="post" action="/desfazer/${agId}/${encodeURIComponent(ev)}" style="margin:0;display:inline;">
         <input type="hidden" name="next" value="/painel">
-        <button type="submit" style="font-size:10px;background:none;border:none;color:#9ca3af;cursor:pointer;padding:0;line-height:1;" title="Desfazer">↩</button>
+        <button type="submit" style="font-size:14px;background:none;border:none;color:#065f46;cursor:pointer;padding:0 0 0 4px;text-decoration:underline;" title="Desfazer este registro">desfazer</button>
       </form>
     </span>`;
       } else {
@@ -312,24 +280,8 @@ function openModal(el) {
       document.getElementById('m-prox-pac-id').value = el.dataset.pacienteId;
       document.getElementById('m-proxima-form').action = '/proxima/' + agId;
 
-      // Duração mediana — hint de qt_override_min
-      const hintDiv      = document.getElementById('m-duracao-hint');
-      const qtOverride   = document.getElementById('m-prox-qt-override');
-      const mediana      = parseInt(el.dataset.duracaoMediana) || 0;
-      const tQt          = parseInt(el.dataset.tQt) || 0;
-      if (mediana && tQt && Math.abs(mediana - tQt) >= 5) {
-        hintDiv.innerHTML = `Duração real média deste paciente: <strong>${mediana} min</strong> (protocolo padrão: ${tQt} min) — próxima sessão usará este valor automaticamente.`;
-        hintDiv.style.display = '';
-        qtOverride.value = mediana;
-        qtOverride.disabled = false;
-      } else {
-        hintDiv.style.display = 'none';
-        qtOverride.disabled = true;
-      }
     } else {
       mProxima.style.display = 'none';
-      document.getElementById('m-duracao-hint').style.display = 'none';
-      document.getElementById('m-prox-qt-override').disabled = true;
     }
   }
 
@@ -349,27 +301,18 @@ function renderProgressBars() {
   document.querySelectorAll('.chair-bar-fill').forEach(fill => {
     const puncaoTime = fill.dataset.puncaoTime;
     const totalMin   = parseInt(fill.dataset.totalMin) || 0;
-    const pctLabel   = fill.parentElement.nextElementSibling;
     if (puncaoTime && totalMin > 0) {
       const [h, m] = puncaoTime.split(':').map(Number);
       const puncaoMin = h * 60 + m;
       const elapsed = Math.max(0, nowMin - puncaoMin);
       const pct = Math.min(100, Math.round(elapsed / totalMin * 100));
       fill.style.width = pct + '%';
-      if (pctLabel) pctLabel.textContent = pct + '%';
     } else {
       fill.style.width = '0%';
-      if (pctLabel) pctLabel.textContent = '';
     }
   });
 }
 renderProgressBars();
-
-// Atualiza data proposta quando intervalo muda
-document.getElementById('m-prox-intervalo').addEventListener('input', function() {
-  const v = parseInt(this.value) || 21;
-  document.getElementById('m-prox-data').value = calcDataProxima(v);
-});
 
 // Anotação via fetch (sem fechar modal)
 document.getElementById('m-anotar-form').addEventListener('submit', async function(e) {

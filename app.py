@@ -100,12 +100,13 @@ GRUPOS_DROPDOWN = {
     "🔴 Vermelho — mais de 4h":[s for s, (c, _) in PROTOCOLO.items() if c == "vermelho"],
 }
 
+# O que está acontecendo agora com o paciente (mesmas palavras em Hoje e no Salão)
 STATUS_LABEL = {
-    "aguardando_puncao":        "Punção",
-    "aguardando_preqt":         "Pré-QT",
-    "aguardando_qt":            "QT",
-    "aguardando_retirada":      "Retirada",
-    "aguardando_higienizacao":  "Higienização",
+    "aguardando_puncao":        "Aguardando punção",
+    "aguardando_preqt":         "Puncionado",
+    "aguardando_qt":            "Em pré-QT",
+    "aguardando_retirada":      "Em QT",
+    "aguardando_higienizacao":  "Limpar poltrona",
     "livre":                    "Livre",
 }
 
@@ -255,6 +256,11 @@ def _build_dia(data_str: str, ao_vivo: bool = False):
     return ag_list, sessoes
 
 
+def _situacao(ag: dict, t_pre: int) -> str:
+    st = _get_status(ag.get("eventos", {}), t_pre)
+    return "Concluído" if st == "livre" else STATUS_LABEL[st]
+
+
 def _pendentes(ag_list: list) -> list:
     """Agendamentos ainda sem horário ou sem poltrona."""
     return [ag for ag in ag_list if ag.get("horario") is None or ag.get("poltrona") is None]
@@ -361,10 +367,12 @@ async def agenda_get(request: Request):
     # Triagem é só do dia de hoje; outros dias se agendam pela Lista/Horizonte
     data = hoje = str(date.today())
     ag_list, sessoes = _build_dia(data)
+    ag_map_ = {ag["nome"]: ag for ag in ag_list}
     return templates.TemplateResponse(request, "agenda.html", {
         "pacientes":         ag_list,
         "sessoes":           sessoes,
         "pendentes":         sorted(_pendentes(ag_list), key=lambda a: (a.get("horario") is None, a.get("horario") or 0, a["nome"])),
+        "situacao":          {s.paciente.nome: _situacao(ag_map_[s.paciente.nome], s.paciente.t_pre) for s in sessoes},
         "sobreposicoes":     _sobreposicoes(sessoes),
         "opcoes_poltrona":   _opcoes_poltrona(),
         "grupos":            GRUPOS_DROPDOWN,
@@ -619,11 +627,23 @@ def _dias_agendados(dias: int) -> list:
     return saida
 
 
+def _esperando_agendamento() -> list:
+    """Quem já fez a última sessão (antes de hoje, ou hoje com retirada registrada)
+    e não tem outra marcada. Quem ainda vai fazer a sessão marcada não entra."""
+    hoje = str(date.today())
+    retirados_hoje = {ag["paciente_id"] for ag in get_dia(hoje) if "retirada" in (ag.get("eventos") or {})}
+    return [
+        p for p in get_horizonte(3650)   # sem limite de prazo: ninguém fica esquecido
+        if p["situacao"] == "aguardando"
+        and (p["ultima_sessao"] < hoje or (p["ultima_sessao"] == hoje and p["paciente_id"] in retirados_hoje))
+    ]
+
+
 @app.get("/lista", response_class=HTMLResponse)
 async def lista_get(request: Request, dias: int = Query(default=7)):
     return templates.TemplateResponse(request, "lista.html", {
         "dias_lista": _dias_agendados(dias),
-        "aguardando": [p for p in get_horizonte(30) if p["situacao"] == "aguardando"],
+        "aguardando": _esperando_agendamento(),
         "labels":     PROTOCOLO_LABEL,
         "dias":       dias,
         "hoje":       str(date.today()),
@@ -813,7 +833,6 @@ async def relatorio_csv(request: Request, data: str = Query(default=None)):
     data = _data_valida(data)
     stats   = get_relatorio_dia(data)
     obs     = get_observacoes_dia(data)
-    params  = _parametros_list()
 
     output = io.StringIO()
     w = csv.writer(output)
@@ -845,10 +864,6 @@ async def relatorio_csv(request: Request, data: str = Query(default=None)):
     for t in _planejado_x_real():
         w.writerow([t["label"], t["pre_plan"], t["pre_real"], t["n_pre"], t["qt_plan"], t["qt_real"], t["n_qt"]])
     w.writerow([])
-    w.writerow(["PARÂMETROS OPERACIONAIS"])
-    w.writerow(["Variável", "Descrição", "Valor atual", "Unidade", "Observação do dia"])
-    for nome_var, descricao, valor, unidade in params:
-        w.writerow([nome_var, descricao, valor, unidade, obs.get(nome_var, "")])
     if stats["intercorrencias"]:
         w.writerow([])
         w.writerow(["INTERCORRÊNCIAS"])

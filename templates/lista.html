@@ -2,119 +2,105 @@
 {% block title %}Agenda — CACON{% endblock %}
 
 {% block content %}
-<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:8px;">
+<!-- ═══ TOPO ═══ -->
+<div class="topo">
   <div>
     <h1>Agenda</h1>
-    <p class="subtitulo">
-      Próximos {{ dias }} dias · marque o horário e a confirmação de cada paciente. A poltrona é dada no dia, em <a href="/">Hoje</a>.
-    </p>
+    <p class="subtitulo">Marque o horário e a confirmação. A poltrona é dada no dia, em <a href="/">Hoje</a>.</p>
   </div>
-  <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap;">
-    <a href="/lista?dias=7"  class="btn btn-sm {% if dias == 7  %}btn-primary{% else %}btn-ghost{% endif %}">7 dias</a>
-    <a href="/lista?dias=14" class="btn btn-sm {% if dias == 14 %}btn-primary{% else %}btn-ghost{% endif %}">14 dias</a>
-    <a href="/lista?dias=30" class="btn btn-sm {% if dias == 30 %}btn-primary{% else %}btn-ghost{% endif %}">30 dias</a>
-    <a href="/configuracao/pacientes" class="btn btn-ghost btn-sm">+ Agendar paciente novo</a>
-    <a href="/lista.csv?dias={{ dias }}" class="btn btn-ghost btn-sm">Baixar planilha</a>
-    <button class="btn btn-ghost btn-sm" onclick="window.print()">Imprimir</button>
-  </div>
+  <a href="/configuracao/pacientes" class="btn btn-primary btn-lg no-print">+ Agendar paciente novo</a>
 </div>
 
-<!-- ═══ ESPERANDO AGENDAMENTO ═══ -->
+<div class="no-print" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:20px;">
+  <span style="font-weight:600; margin-right:4px;">Mostrar:</span>
+  {% for n in (7, 14, 30) %}
+    <a href="/lista?dias={{ n }}" class="btn btn-sm {% if dias == n %}btn-primary{% else %}btn-ghost{% endif %}">{{ n }} dias</a>
+  {% endfor %}
+  <a href="/lista.csv?dias={{ dias }}" class="btn btn-ghost btn-sm" style="margin-left:auto;">Baixar planilha</a>
+  <button class="btn btn-ghost btn-sm" onclick="window.print()">Imprimir</button>
+</div>
+
+<!-- ═══ PRECISAM DE NOVA DATA ═══ -->
 {% if aguardando %}
-<div class="card no-print" style="border-left:4px solid #eab308;">
-  <h2 style="margin-bottom:6px;">Esperando agendamento ({{ aguardando|length }})</h2>
-  <p style="font-size:13px; color:#6b7280; margin-bottom:12px;">
-    Pacientes em tratamento sem a próxima sessão marcada. A data esperada já vem preenchida — ajuste se precisar, informe o horário e agende.
-  </p>
-  <table class="tabela-agenda">
-    <thead><tr><th>Paciente</th><th>Protocolo</th><th>Ciclo</th><th>Última sessão</th><th>Agendar para</th></tr></thead>
-    <tbody>
-      {% for p in aguardando %}
-      <tr {% if p.dias_restantes < 0 %}style="background:#fff5f5;"{% endif %}>
-        <td><strong>{{ p.nome }}</strong>{% if p.dias_restantes < 0 %}<div style="font-size:12px; color:#dc2626;">atrasado {{ -p.dias_restantes }} dia(s)</div>{% endif %}</td>
-        <td style="font-size:13px; color:#4b5563;">{{ labels.get(p.protocolo, p.protocolo) }}</td>
-        <td style="font-size:13px;">{{ p.ciclo_atual }}{% if p.total_ciclos %} / {{ p.total_ciclos }}{% endif %}</td>
-        <td style="font-size:13px; color:#6b7280;">{{ p.ultima_sessao[8:10] }}/{{ p.ultima_sessao[5:7] }}</td>
-        <td style="white-space:nowrap;">
-          <form method="post" action="/agendar/{{ p.paciente_id }}" style="margin:0; display:flex; gap:6px; align-items:center;">
-            <input type="hidden" name="dias" value="{{ dias }}">
-            <input type="hidden" name="intervalo_dias" value="{{ p.intervalo_dias }}">
-            <input type="date" name="data_proxima" value="{{ p.proxima_esperada }}" required style="padding:4px 6px;">
-            <input type="time" name="horario" style="width:110px; padding:4px 6px;">
-            <button type="submit" class="btn btn-primary btn-sm" style="padding:4px 10px;">Agendar</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="card no-print" style="border-left:6px solid #f59e0b;">
+  <h2>Precisam de nova data ({{ aguardando|length }})</h2>
+  <p class="nota">Já fizeram a última sessão e não têm a próxima marcada. A data sugerida segue o intervalo do protocolo — ajuste se precisar.</p>
+  {% for p in aguardando %}
+  <form method="post" action="/agendar/{{ p.paciente_id }}"
+        style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:14px 0; border-top:1px solid #eef0f3; margin:0;">
+    <input type="hidden" name="dias" value="{{ dias }}">
+    <input type="hidden" name="intervalo_dias" value="{{ p.intervalo_dias }}">
+    <div style="flex:1; min-width:220px;">
+      <strong style="font-size:19px;">{{ p.nome }}</strong>
+      <span class="sub">{{ labels.get(p.protocolo, p.protocolo) }} · ciclo {{ p.ciclo_atual }}{% if p.total_ciclos %} de {{ p.total_ciclos }}{% endif %}
+        {% if p.dias_restantes < 0 %} · <span style="color:#b91c1c; font-weight:600;">data sugerida já passou</span>{% endif %}</span>
+    </div>
+    <label style="margin:0; display:flex; align-items:center; gap:8px;">Data
+      <input type="date" name="data_proxima" value="{{ p.proxima_esperada }}" required></label>
+    <label style="margin:0; display:flex; align-items:center; gap:8px;">Horário
+      <input type="time" name="horario"></label>
+    <button type="submit" class="btn btn-verde">Agendar</button>
+  </form>
+  {% endfor %}
 </div>
 {% endif %}
 
 {% if not dias_lista %}
-<div class="card">
-  <div class="empty">Nenhum paciente agendado nos próximos {{ dias }} dias.</div>
-</div>
+<div class="card"><div class="empty">Nenhum paciente agendado nos próximos {{ dias }} dias.</div></div>
 {% endif %}
 
 {% macro botao_conf(ag, valor, rotulo, classe) %}
   <form method="post" action="/confirmar/{{ ag.ag_id }}" style="display:inline; margin:0;">
     <input type="hidden" name="dias" value="{{ dias }}">
     <input type="hidden" name="valor" value="{{ valor }}">
-    <button type="submit" class="btn {{ classe }} btn-sm" style="padding:4px 10px;">{{ rotulo }}</button>
+    <button type="submit" class="btn {{ classe }} btn-sm">{{ rotulo }}</button>
   </form>
 {% endmacro %}
 
 <!-- ═══ DIAS ═══ -->
 {% for dia in dias_lista %}
 <div class="card" style="padding:0; overflow:hidden;">
-  <div style="background:#f3f4f6; padding:10px 14px; display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px;">
-    <strong style="font-size:13px; text-transform:uppercase; letter-spacing:.5px; color:#374151;">{{ dia.data_fmt }}</strong>
-    <span style="font-size:13px; color:#6b7280;">{{ dia.agendamentos|length }} paciente(s)</span>
+  <div style="background:#eef2ff; padding:14px 20px; display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px;">
+    <strong style="font-size:20px;">{{ dia.data_fmt|capitalize }}</strong>
+    <span style="font-size:17px;">{{ dia.agendamentos|length }} paciente{{ 's' if dia.agendamentos|length != 1 }}</span>
     {% if dia.sem_horario %}
-      <span style="font-size:13px; color:#b45309; font-weight:600;">{{ dia.sem_horario }} sem horário</span>
+      <span class="badge badge-amarelo">{{ dia.sem_horario }} sem horário</span>
     {% endif %}
     {% if dia.por_hora %}
-      <span style="font-size:12px; color:#6b7280;" title="Quantos pacientes começam em cada hora (só informação)">
-        Por hora:
-        {% for hh, n in dia.por_hora %}<span style="display:inline-block; background:#fff; border:1px solid #e5e7eb; border-radius:6px; padding:1px 6px; margin:2px 2px 0 0;">{{ '%02d' % hh }}h · <strong>{{ n }}</strong></span>{% endfor %}
+      <span style="font-size:15px; color:#374151;" title="Quantos pacientes começam em cada hora — só para enxergar o dia">
+        {% for hh, n in dia.por_hora %}<span style="display:inline-block; background:#fff; border:1px solid #c7d2fe; border-radius:8px; padding:2px 8px; margin:2px 4px 0 0;">{{ '%02d' % hh }}h: <strong>{{ n }}</strong></span>{% endfor %}
       </span>
     {% endif %}
   </div>
-  <table class="tabela-agenda" style="width:100%;">
-    <thead>
-      <tr>
-        <th>Horário</th>
-        <th>Nome</th>
-        <th>Telefone</th>
-        <th>Protocolo</th>
-        <th>Confirmação</th>
-        <th class="no-print">Alterar horário</th>
-      </tr>
-    </thead>
+  <table class="tabela-agenda">
+    <thead><tr><th style="width:230px;">Horário</th><th>Paciente</th><th>Confirmação</th></tr></thead>
     <tbody>
       {% for ag in dia.agendamentos %}
       <tr id="ag-{{ ag.ag_id }}">
-        <td style="font-weight:700; font-size:15px;">{{ fmt(ag.horario) if ag.horario is not none else '—' }}</td>
-        <td><strong>{{ ag.nome }}</strong>{% if ag.num_prontuario %}<div style="font-size:12px; color:#6b7280;">pront. {{ ag.num_prontuario }}</div>{% endif %}</td>
-        <td style="font-size:13px; color:#374151;">{{ ag.telefone or '—' }}</td>
-        <td style="font-size:13px; color:#4b5563;">{{ labels.get(ag.protocolo, ag.protocolo) }}</td>
+        <td>
+          <form method="post" action="/lista/horario/{{ ag.ag_id }}" class="no-print" style="margin:0; display:flex; gap:8px; align-items:center;">
+            <input type="hidden" name="dias" value="{{ dias }}">
+            <input type="time" name="horario" value="{{ fmt(ag.horario) if ag.horario is not none else '' }}"
+              style="font-size:18px; font-weight:700; {% if ag.horario is none %}border-color:#f59e0b; background:#fffbeb;{% endif %}"
+              onchange="this.form.querySelector('button').style.visibility='visible'">
+            <button type="submit" class="btn btn-verde btn-sm" style="visibility:hidden;">Salvar</button>
+          </form>
+          <span class="hora" style="display:none;" data-print>{{ fmt(ag.horario) if ag.horario is not none else '—' }}</span>
+        </td>
+        <td>
+          <strong>{{ ag.nome }}</strong>
+          <span class="sub">{{ labels.get(ag.protocolo, ag.protocolo) }}{% if ag.telefone %} · tel. {{ ag.telefone }}{% endif %}</span>
+        </td>
         <td style="white-space:nowrap;">
           {% if ag.confirmado == 'sim' %}
-            <span class="badge badge-verde">Confirmado</span>
+            <span class="badge badge-verde">✓ Confirmado</span>
             <span class="no-print">{{ botao_conf(ag, '', 'desfazer', 'btn-ghost') }}</span>
           {% elif ag.confirmado == 'nao' %}
-            <span class="badge badge-vermelho">Não confirmou</span>
+            <span class="badge badge-vermelho">✕ Não confirmou</span>
             <span class="no-print">{{ botao_conf(ag, '', 'desfazer', 'btn-ghost') }}</span>
           {% else %}
-            <span class="no-print">{{ botao_conf(ag, 'sim', '✓ Confirmou', 'btn-primary') }} {{ botao_conf(ag, 'nao', '✕ Não', 'btn-ghost') }}</span>          {% endif %}
-        </td>
-        <td class="no-print" style="white-space:nowrap;">
-          <form method="post" action="/lista/horario/{{ ag.ag_id }}" style="margin:0; display:flex; gap:6px; align-items:center;">
-            <input type="hidden" name="dias" value="{{ dias }}">
-            <input type="time" name="horario" value="{{ fmt(ag.horario) if ag.horario is not none else '' }}" style="width:110px; padding:4px 6px;">
-            <button type="submit" class="btn btn-primary btn-sm" style="padding:4px 10px;">Salvar</button>
-          </form>
+            <span class="no-print">{{ botao_conf(ag, 'sim', '✓ Confirmou', 'btn-verde') }} {{ botao_conf(ag, 'nao', '✕ Não confirmou', 'btn-ghost') }}</span>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}
@@ -123,7 +109,5 @@
 </div>
 {% endfor %}
 
-<p style="font-size:12px; color:#9ca3af; margin-top:8px;" class="no-print">
-  A contagem por hora é só para enxergar o dia — o sistema não limita quantos pacientes cabem em cada horário. Gerado em {{ hoje }}.
-</p>
+<style>@media print { [data-print] { display: inline !important; } }</style>
 {% endblock %}

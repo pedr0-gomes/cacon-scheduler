@@ -31,12 +31,12 @@ O Salão (`/painel`) **não exige login** — decisão deliberada para não cria
 
 Um bloco por dia (7, 14 ou 30 dias), com os pacientes em ordem de horário.
 
-- **Horário:** defina ou mude na própria linha e clique em **Salvar**. Quem ainda não tem horário aparece com "—" no fim do dia, e o cabeçalho avisa quantos são
-- **Por hora:** o cabeçalho de cada dia mostra quantos pacientes começam em cada hora (ex.: "07h · 9"). É só para enxergar o dia e não empilhar todo mundo no mesmo horário: o sistema não limita
-- **Confirmação:** depois de ligar para o paciente, marque **✓ Confirmou** ou **✕ Não**. O selo fica na linha; **desfazer** volta para pendente. Vale para qualquer dia — o costume é confirmar os de amanhã na tarde anterior
-- **Esperando agendamento** (quadro amarelo no topo, só aparece quando há alguém): pacientes em tratamento sem a próxima sessão marcada. A data esperada já vem preenchida pelo intervalo do protocolo; ajuste se precisar, informe o horário e clique em **Agendar**. Não há verificação de vaga
+- **Horário:** é o primeiro campo da linha. Mude o horário e aparece o botão **Salvar**. Quem ainda não tem horário fica com o campo em amarelo, e o cabeçalho do dia avisa quantos são
+- **Por hora:** o cabeçalho de cada dia mostra quantos pacientes começam em cada hora (ex.: "07h: 9"). É só para enxergar o dia e não empilhar todo mundo no mesmo horário: o sistema não limita
+- **Confirmação:** depois de ligar para o paciente, clique em **✓ Confirmou** ou **✕ Não confirmou**. O selo fica na linha; **desfazer** volta para pendente. Vale para qualquer dia — o costume é confirmar os de amanhã na tarde anterior
+- **Precisam de nova data** (quadro amarelo no topo, só aparece quando há alguém): quem já fez a última sessão e não tem a próxima marcada. A data sugerida segue o intervalo do protocolo; ajuste se precisar, informe o horário e clique em **Agendar**. Não há verificação de vaga
 - **+ Agendar paciente novo:** leva a Configuração → Pacientes, para cadastrar alguém que vem num dia futuro (quem chega hoje é walk-in, em Hoje)
-- **Baixar planilha** (`/lista.csv`) exporta a lista para ligar e confirmar
+- **Baixar planilha** exporta a lista para ligar e confirmar
 
 O horário é o que foi marcado. Se o paciente precisa chegar antes por causa da recepção, isso é combinado por quem liga.
 
@@ -44,23 +44,24 @@ O horário é o que foi marcado. Se o paciente precisa chegar antes por causa da
 
 ## Hoje — o dia de hoje
 
-1. O quadro **Para alocar** lista os pacientes de hoje ainda sem poltrona (ou sem horário). O horário agendado já vem preenchido: confira, escolha a **poltrona** e clique em **Salvar**
-2. Quem já tem horário e poltrona aparece na **Escala do dia**, em ordem de horário, com o **fim previsto** (horário + tempo do protocolo do paciente). Se alguém atrasar ou trocar de lugar, altere na própria linha e **Salvar**
-3. Se dois pacientes ficarem na mesma poltrona em horários que se cruzam, a linha mostra **⚠ sobrepõe com…**. É só um aviso: o sistema não impede
-4. **Salão agora** mostra cada poltrona com o paciente e a etapa. Poltrona **reservada** (amarela) é a de quem ainda não foi puncionado, com o horário marcado
-5. O ✕ na linha tira o paciente do dia
+1. **Dar poltrona** (quadro amarelo, só aparece quando há alguém): pacientes de hoje que ainda não têm poltrona. Confira o horário, escolha a poltrona e clique em **Salvar**
+2. **Pacientes do dia:** quem já tem poltrona, em ordem de horário, com a **situação** e o horário em que deve terminar. Para mudar horário ou poltrona, clique em **Alterar**; na mesma janela há **Tirar da lista de hoje** para quem não veio
+3. Se dois pacientes ficarem na mesma poltrona em horários que se cruzam, aparece **⚠ mesma poltrona que…**. É só um aviso: o sistema não impede
+4. **Poltronas agora** mostra cada poltrona com o paciente e a situação — ajuda a escolher uma poltrona livre
+
+**Situação** (as mesmas palavras aparecem no Salão): Aguardando punção → Puncionado → Em pré-QT → Em QT → Limpar poltrona → Concluído.
 
 O paciente só aparece no Salão depois de ter horário **e** poltrona.
 
 #### Cadastrar um walk-in
 
-Clique em **+ Walk-in** e preencha:
+Clique em **+ Walk-in**. Nome e protocolo são obrigatórios; horário, poltrona, prontuário e telefone ficam à vista; o resto está em **Mais dados (opcional)**:
 
 | Campo | Obrigatório | Notas |
 |---|---|---|
 | Nome do paciente | Sim | |
 | Protocolo | Sim | Escolha da lista ou "Outro protocolo..." para protocolo fora da lista. Os tempos de pré-QT e QT viram o **previsto** do relatório |
-| Horário de início e poltrona | Não | Se ficarem vazios, o paciente vai para **Para alocar**, em Hoje |
+| Horário e poltrona | Não | Se ficarem vazios, o paciente vai para **Dar poltrona** |
 | Total de ciclos | Recomendado | Usado para saber quando o tratamento termina |
 | Ciclos já feitos | Se já estava em tratamento | Só vale para paciente novo no sistema; sem ele a contagem começa do zero. Para quem já tem cadastro, corrija em Configuração → Pacientes → Editar |
 | Número de prontuário | Recomendado | |
@@ -70,66 +71,39 @@ Clique em **+ Walk-in** e preencha:
 
 O walk-in entra no dia de hoje.
 
-**Protocolo fora da lista:** selecione "Outro protocolo...", informe o nome, a cor de duração (verde/azul/amarelo/vermelho) e o bucket de pré-medicação (A/B/C/Z). Esses valores dão o tempo previsto.
+**Protocolo fora da lista:** escolha "Outro protocolo (digitar)", informe o nome e a duração aproximada; em **Mais dados** ajuste a pré-QT e os minutos de QT. Esses valores dão o tempo previsto.
 
 ---
 
 ## Salão — registrar as etapas
 
-1. Acesse `/painel` (botão **Salão**) em qualquer navegador na rede local
-2. A tela mostra todas as poltronas (quantidade definida em Configuração → Parâmetros) com status em tempo real por cor:
-   - **Cinza** — livre
-   - **Amarelo** — aguardando punção
-   - **Laranja** — pré-QT em andamento
-   - **Azul** — QT em andamento
-   - **Roxo** — aguardando retirada
-   - **Verde** — aguardando higienização
-
-### Registrar uma etapa
-
-1. Clique na poltrona do paciente
-2. Clique no botão da etapa concluída (Punção, Pré-QT, QT, Retirada, Higienização)
-3. O horário é registrado automaticamente
-
-### Desfazer um evento
-
-No modal da poltrona, clique em **↩** ao lado do evento para remover o registro. Use quando houver erro de toque.
-
-### Registrar intercorrência
-
-No modal da poltrona, há um campo de texto livre para anotar intercorrências (reação adversa, troca de poltrona, etc.). Essas notas aparecem no relatório de fim de dia.
-
-### Agendar a próxima sessão
-
-Quando o paciente recebe a retirada, a janela da poltrona mostra **Agendar próxima**. Informe o intervalo em dias; a data aparece preenchida e pode ser mudada — vale a data que ficar no campo. Há também o campo **Horário**; se ficar vazio, defina depois na Agenda. Quem não for agendado aqui aparece em **Esperando agendamento**, na Agenda.
+1. Botão **Salão** (`/painel`), em qualquer navegador da rede local — não pede senha. Todas as poltronas cabem na tela
+2. Cada poltrona mostra o número, o primeiro nome e a situação (ou "chega 07:45" para quem ainda não foi puncionado). A barra embaixo é o tempo já passado em relação ao previsto
+3. **Toque na poltrona** e use o botão grande para registrar a próxima etapa (Punção, Pré-QT, QT, Retirada, Higienização). O horário é registrado na hora
+4. Errou o toque? Na mesma janela, clique em **desfazer** ao lado da etapa
+5. **Intercorrência:** escreva no campo da janela e clique em **Salvar anotação**. Aparece no Relatório
+6. **Agendar a próxima sessão:** depois da retirada, a janela mostra data (já sugerida) e horário. Quem não for agendado aqui aparece em **Precisam de nova data**, na Agenda
 
 ---
 
-## Relatório de fim de dia
+## Relatório
 
-Acesse `/relatorio` ao final do expediente.
+Escolha o dia no topo (abre no dia de hoje).
 
-O relatório mostra:
-- Total de pacientes no dia, agendados vs. walk-ins, concluídos
-- **Atendimentos do dia: previsto × real** — uma linha por paciente (explicação abaixo)
-- **Tempos por protocolo: planejado × real** — a mediana de todo o histórico, por protocolo
-- Parâmetros operacionais atuais com campo de observação por parâmetro
-- Intercorrências do dia
-
-**Previsto × real, paciente a paciente.** O previsto é o horário agendado e os tempos do protocolo do paciente. O real é o que a equipe registrou no painel:
+**Tempo de cada paciente.** Para cada etapa aparece *previsto → real*, e embaixo a diferença: **vermelho** = demorou mais, **verde** = terminou antes, cinza = no tempo.
 
 | Coluna | Previsto | Real |
 |---|---|---|
-| Início | horário agendado | hora da punção (a diferença é o **atraso**) |
+| Chegada | horário marcado | hora da punção (diferença = atraso) |
 | Pré-QT | tempo de pré-QT do protocolo | do registro de pré-QT até o de QT |
 | QT | tempo de QT do protocolo | do registro de QT até o de retirada |
 | Total na poltrona | pré-QT + intervalo + QT | da punção até a retirada |
 
-Diferença **positiva (vermelha)** = demorou mais que o previsto; negativa (verde) = terminou antes. Exemplo: total previsto 4h00, real 5h00, **+60**; na mesma linha, pré-QT **+30** mostra quanto desse atraso veio da pré-QT. Para a linha ficar completa, registre **punção, pré-QT, QT e retirada** no painel; etapa sem registro aparece como "—".
+Exemplo: total 4h00 → 5h00, **+60 min**; na mesma linha, pré-QT **+30 min** mostra quanto desse atraso veio da pré-QT. Etapa sem registro no Salão aparece como "não registrado".
 
-**Como usar o campo de observação:** se o tempo real de punção foi diferente do parâmetro padrão, registre. Esses registros acumulam o histórico de calibração.
+**Média por protocolo (todos os dias).** Quanto cada protocolo costuma levar de verdade. Com poucas sessões ainda não é confiável. Quando os números se firmarem, ajuste os tempos em Configuração → Parâmetros ou no cadastro do paciente — assim o previsto fica mais perto do real.
 
-**Exportar:** `/relatorio/csv` gera um arquivo para arquivamento.
+**Baixar planilha** gera o mesmo conteúdo em planilha, para arquivar.
 
 ---
 
@@ -137,9 +111,7 @@ Diferença **positiva (vermelha)** = demorou mais que o previsto; negativa (verd
 
 **O sistema não limita.** Não há teto de pacientes por dia, vaga de walk-in nem horário proibido. Quem organiza o salão é a equipe; o sistema registra e mede.
 
-**Tempos planejados × reais por protocolo.** A tabela *Tempos por protocolo* do relatório junta todo o histórico: para cada protocolo, o pré-QT e o QT planejados ao lado da mediana do que foi registrado, com o número de sessões. Com menos de 5 sessões, trate como indício. Quando os números se firmarem, ajuste o tempo em Configuração → Parâmetros ou no cadastro do paciente — assim o **previsto** fica mais perto do real.
-
-**Paciente não confirmou mas apareceu.** Cadastre como walk-in normalmente. O sistema trata como entrada do dia.
+**Paciente não confirmou mas apareceu.** Ele continua na lista do dia: é só dar a poltrona em Hoje. A confirmação não tira ninguém da lista.
 
 **Protocolo novo não está na lista.** Use "Outro protocolo..." no modal. Informe a duração estimada da QT para o previsto do relatório fazer sentido. Para entrar na lista fixa, o protocolo precisa ser adicionado em `scheduler.py` (`PROTOCOLO`) e `app.py` (`PROTOCOLO_LABEL`).
 

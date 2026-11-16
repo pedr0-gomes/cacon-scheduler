@@ -2,453 +2,269 @@
 {% block title %}Hoje — CACON{% endblock %}
 
 {% block content %}
-
-{# ── Data legível em pt-BR ──────────────────────────────────────────────── #}
-{% set _dias_semana  = ["Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado","Domingo"] %}
-{% set _meses        = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"] %}
-{% set _dp           = data.split('-') %}
-{% set _ano          = _dp[0]|int %}
-{% set _mes          = _dp[1]|int %}
-{% set _dia          = _dp[2]|int %}
-{# Tomohiko Sakamoto — dia da semana sem filtro Jinja #}
+{% set _dias_semana = ["Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado","Domingo"] %}
+{% set _meses = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"] %}
+{% set _dp = data.split('-') %}
+{% set _ano = _dp[0]|int %}{% set _mes = _dp[1]|int %}{% set _dia = _dp[2]|int %}
 {% set _t = [0,3,2,5,0,3,5,1,4,6,2,4] %}
 {% set _y = _ano - (1 if _mes < 3 else 0) %}
 {% set _dow = (_y + (_y // 4) - (_y // 100) + (_y // 400) + _t[_mes - 1] + _dia) % 7 %}
-{# _dow: 0=dom,1=seg,…,6=sab — ajustar p/ nossa lista (seg=0) #}
-{% set _dow_idx = (_dow + 6) % 7 %}
-{% set data_legivel = _dias_semana[_dow_idx] ~ ", " ~ "%02d"|format(_dia) ~ " de " ~ _meses[_mes - 1] ~ " de " ~ _ano %}
+{% set data_legivel = _dias_semana[(_dow + 6) % 7] ~ ", " ~ _dia ~ " de " ~ _meses[_mes - 1] %}
 
-{# ── Contadores ─────────────────────────────────────────────────────────── #}
-{% set n_total    = pacientes | length %}
-{% set n_agendado = pacientes | selectattr('status','eq','agendado') | list | length %}
-{% set n_walkin   = pacientes | selectattr('status','eq','walk_in')  | list | length %}
-
-{# ── Mapa nome → ag (para lookup na tabela) ─────────────────────────────── #}
 {% set ag_map = {} %}
-{% for p in pacientes %}
-  {% if ag_map.update({p.nome: p}) %}{% endif %}
-{% endfor %}
+{% for p in pacientes %}{% if ag_map.update({p.nome: p}) %}{% endif %}{% endfor %}
 
-{% macro campos_alocacao(ag, horario_txt) %}
-  <input type="time" name="horario" value="{{ horario_txt }}" form="aloc-{{ ag.ag_id }}"
-         style="width:110px; padding:4px 6px;">
-  <select name="poltrona" form="aloc-{{ ag.ag_id }}" style="padding:4px 6px;">
-    <option value="">— poltrona —</option>
+{% macro select_poltrona(nome, atual, id='') %}
+  <select name="{{ nome }}" {% if id %}id="{{ id }}"{% endif %} style="width:auto; min-width:150px;">
+    <option value="">Escolher…</option>
     {% for n, seg in opcoes_poltrona %}
-      <option value="{{ n }}" {% if ag.poltrona == n %}selected{% endif %}>{{ n }} · {{ seg }}</option>
+      <option value="{{ n }}" {% if atual == n %}selected{% endif %}>Poltrona {{ n }}{% if seg != 'SUS' %} ({{ seg|lower }}){% endif %}</option>
     {% endfor %}
   </select>
-  <button type="submit" form="aloc-{{ ag.ag_id }}" class="btn btn-primary btn-sm" style="padding:4px 10px;">Salvar</button>
 {% endmacro %}
 
-<!-- ═══════════════════════ CABEÇALHO ═══════════════════════ -->
-<h1>Hoje</h1>
-<p class="subtitulo">{{ data_legivel }} · os próximos dias se marcam na <a href="/lista">Agenda</a></p>
-
-<!-- ═══════════════════════ BARRA DE AÇÕES ══════════════════ -->
-<div class="no-print" style="display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
-  <button class="btn btn-primary btn-sm" onclick="document.getElementById('modal-walkin').style.display='flex'">
-    + Walk-in
-  </button>
+<!-- ═══ TOPO ═══ -->
+<div class="topo">
+  <div>
+    <h1>Hoje</h1>
+    <p class="subtitulo">{{ data_legivel }}</p>
+  </div>
+  <button class="btn btn-primary btn-lg" onclick="abrir('modal-walkin')">+ Walk-in</button>
 </div>
 
-<!-- ═══════════════════════ VITALS BAR ════════════════════════ -->
-<div class="vitals-bar no-print" style="margin-bottom:20px;">
-  <div class="vital-item">
-    <div class="vital-num">{{ n_total }}</div>
-    <div class="vital-label">Pacientes</div>
-  </div>
-  <div class="vital-item">
-    <div class="vital-num" style="color:#1e40af;">{{ n_agendado }}</div>
-    <div class="vital-label">Agendados</div>
-  </div>
-  <div class="vital-item">
-    <div class="vital-num" style="color:#374151;">{{ n_walkin }}</div>
-    <div class="vital-label">Walk-ins</div>
-  </div>
-  <div class="vital-item">
-    <div class="vital-num" style="color:{% if pendentes %}#d97706{% else %}#15803d{% endif %};">{{ pendentes|length }}</div>
-    <div class="vital-label">Sem horário/poltrona</div>
-  </div>
-  <div class="vital-item no-print" style="display:flex; flex-direction:column; justify-content:center; gap:8px; background:transparent; box-shadow:none; padding:0;">
-    <button onclick="window.print()" class="btn btn-ghost btn-sm">Imprimir</button>
-  </div>
-</div>
-
-{# Um form vazio por agendamento: os campos da linha apontam para ele (atributo form=) #}
-{% for ag in pacientes %}
-<form id="aloc-{{ ag.ag_id }}" method="post" action="/alocar/{{ ag.ag_id }}" style="display:none;">
-  <input type="hidden" name="data_sessao" value="{{ data }}">
-</form>
-{% endfor %}
-
-<!-- ═══════════════════════ PENDENTES DE ALOCAÇÃO ════════════════ -->
+<!-- ═══ 1. DAR POLTRONA ═══ -->
 {% if pendentes %}
-<div class="card" style="border-left:4px solid #eab308;">
-  <h2 style="margin-bottom:6px;">Para alocar ({{ pendentes|length }})</h2>
-  <p style="font-size:13px; color:#6b7280; margin-bottom:12px;">
-    Pacientes de hoje ainda sem poltrona (ou sem horário). O horário agendado já vem preenchido — confira, escolha a poltrona e salve. Não há limite de horário nem de quantidade.
-  </p>
+<div class="card" style="border-left:6px solid #f59e0b;">
+  <h2>Dar poltrona ({{ pendentes|length }})</h2>
+  <p class="nota">Pacientes de hoje que ainda não têm poltrona. Confira o horário, escolha a poltrona e salve.</p>
+  {% for ag in pendentes %}
+  <form method="post" action="/alocar/{{ ag.ag_id }}"
+        style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:14px 0; border-top:1px solid #eef0f3; margin:0;">
+    <input type="hidden" name="data_sessao" value="{{ data }}">
+    <div style="flex:1; min-width:220px;">
+      <strong style="font-size:19px;">{{ ag.nome }}</strong>
+      <span class="sub">{{ labels.get(ag.protocolo, ag.protocolo) }}{% if ag.status == 'walk_in' %} · walk-in{% endif %}</span>
+    </div>
+    <label style="margin:0; display:flex; align-items:center; gap:8px;">Horário
+      <input type="time" name="horario" value="{{ fmt(ag.horario) if ag.horario is not none else '' }}" required>
+    </label>
+    {{ select_poltrona('poltrona', ag.poltrona) }}
+    <button type="submit" class="btn btn-verde">Salvar</button>
+  </form>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- ═══ 2. ESCALA DO DIA ═══ -->
+<div class="card">
+  <h2>Pacientes do dia ({{ sessoes|length }})</h2>
+  {% if sessoes %}
   <table class="tabela-agenda">
-    <thead><tr><th>Paciente</th><th>Prontuário</th><th>Protocolo</th><th>Horário agendado</th><th>Tipo</th><th class="no-print">Horário e poltrona</th><th class="no-print"></th></tr></thead>
+    <thead>
+      <tr><th>Horário</th><th>Poltrona</th><th>Paciente</th><th>Situação</th><th>Termina por volta de</th><th class="no-print"></th></tr>
+    </thead>
     <tbody>
-      {% for ag in pendentes %}
+      {% for s in sessoes %}
+      {% set ag = ag_map.get(s.paciente.nome) %}
+      {% set sit = situacao.get(s.paciente.nome, '') %}
       <tr>
-        <td><strong>{{ ag.nome }}</strong></td>
-        <td style="font-size:13px;">{{ ag.num_prontuario or '—' }}</td>
-        <td style="font-size:13px; color:#4b5563;">{{ labels.get(ag.protocolo, ag.protocolo) }}</td>
-        <td>{{ fmt(ag.horario) if ag.horario is not none else '—' }}</td>
-        <td>{% if ag.status == 'agendado' %}<span class="badge badge-azul" style="font-size:12px;">agendado</span>{% else %}<span class="badge" style="background:#f3f4f6; color:#6b7280; font-size:12px;">walk-in</span>{% endif %}</td>
-        <td class="no-print" style="white-space:nowrap;">{{ campos_alocacao(ag, fmt(ag.horario) if ag.horario is not none else '') }}</td>
-        <td class="no-print">
-          <form method="post" action="/remover/{{ ag.ag_id }}" style="margin:0;" onsubmit="return confirm('Remover {{ ag.nome }} deste dia?')">
-            <input type="hidden" name="data_sessao" value="{{ data }}">
-            <button type="submit" class="btn btn-ghost btn-sm" style="padding:4px 10px; font-size:13px; color:#ef4444;">✕</button>
-          </form>
+        <td class="hora">{{ fmt(s.chegada) }}</td>
+        <td>
+          <span class="poltrona-badge">{{ s.poltrona }}</span>
+          {% if sobreposicoes.get(s.paciente.nome) %}
+            <span style="display:block; font-size:14px; color:#b45309; font-weight:600; margin-top:4px;">
+              ⚠ mesma poltrona que {{ sobreposicoes[s.paciente.nome] | map('truncate', 22, True, '…') | join(', ') }}
+            </span>
+          {% endif %}
+        </td>
+        <td><strong>{{ s.paciente.nome }}</strong><span class="sub">{{ labels.get(s.paciente.protocolo, s.paciente.protocolo) }}{% if ag.confirmado == 'nao' %} · <span style="color:#b91c1c;">não confirmou</span>{% endif %}</span></td>
+        <td>
+          <span class="badge {% if sit == 'Concluído' %}badge-verde{% elif sit == 'Aguardando punção' %}badge-amarelo{% else %}badge-azul{% endif %}">{{ sit }}</span>
+        </td>
+        <td style="font-size:17px;">{{ fmt(s.saida_est) }}</td>
+        <td class="no-print" style="text-align:right;">
+          <button type="button" class="btn btn-ghost btn-sm"
+            onclick="alterar({{ ag.ag_id }}, '{{ s.paciente.nome|e }}', '{{ fmt(s.chegada) }}', {{ s.poltrona }})">Alterar</button>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  {% else %}
+    <div class="empty">Ninguém com poltrona ainda hoje.</div>
+  {% endif %}
 </div>
-{% endif %}
 
-<!-- ═══════════════════════ SALÃO AGORA ════════════════ -->
+<!-- ═══ 3. POLTRONAS AGORA ═══ -->
 {% set n_pol_livres = poltronas | selectattr('status','eq','livre') | list | length %}
-{% set n_pol_reserv = poltronas | selectattr('status','eq','aguardando_puncao') | list | length %}
 <style>
-  .salao-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
-  .mini-pol {
-    border: 2px solid; border-radius: 10px; padding: 8px 6px; text-align: center; min-height: 74px;
-    display: flex; flex-direction: column; justify-content: center; gap: 2px; overflow: hidden;
-  }
-  .mini-pol .n   { font-size: 20px; font-weight: 800; line-height: 1; }
-  .mini-pol .nm  { font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .mini-pol .st  { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; opacity: .85; }
-  .mini-pol .sg  { font-size: 9px; opacity: .55; text-transform: uppercase; }
-  .legenda-salao { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #6b7280; }
-  .legenda-salao i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; border: 1.5px solid; vertical-align: -1px; }
+  .salao-grid { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 8px; }
+  @media (max-width: 900px) { .salao-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); } }
+  .mini-pol { border: 2px solid; border-radius: 10px; padding: 8px 4px; text-align: center; min-height: 84px;
+              display: flex; flex-direction: column; justify-content: center; gap: 2px; overflow: hidden; }
+  .mini-pol .n  { font-size: 22px; font-weight: 800; line-height: 1; }
+  .mini-pol .nm { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mini-pol .st { font-size: 13px; font-weight: 600; }
 </style>
-<div class="card no-print" style="padding:18px 20px;">
-  <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
-    <h2 style="margin:0;">Salão agora</h2>
-    <span style="font-size:13px; color:#6b7280;">{{ n_pol_livres }} livres · {{ n_pol_reserv }} reservadas para quem ainda não chegou · {{ poltronas|length }} no total · atualizado às {{ agora_txt }}</span>
-    <a href="/" class="btn btn-ghost btn-sm">Atualizar</a>
+<div class="card no-print">
+  <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:14px;">
+    <h2 style="margin:0;">Poltronas agora</h2>
+    <span style="font-size:17px;"><strong>{{ n_pol_livres }}</strong> livres de {{ poltronas|length }}</span>
+    <a href="/" class="btn btn-ghost btn-sm" style="margin-left:auto;">Atualizar ({{ agora_txt }})</a>
   </div>
   <div class="salao-grid">
     {% for p in poltronas %}
-    <div class="mini-pol chair-{{ p.status }}" title="{% if p.sessao %}{{ p.sessao.paciente.nome }} — {{ fmt(p.sessao.chegada) }} — {{ status_label.get(p.status, p.status) }}{% else %}Livre{% endif %}">
+    <div class="mini-pol chair-{{ p.status }}">
       <div class="n">{{ p.num }}</div>
       {% if p.sessao %}
         <div class="nm">{{ p.sessao.paciente.nome.split()[0] }}</div>
-        <div class="st">{{ status_label.get(p.status, '') }}{% if p.status == 'aguardando_puncao' %} {{ fmt(p.sessao.chegada) }}{% endif %}</div>
+        <div class="st">{% if p.status == 'aguardando_puncao' %}chega {{ fmt(p.sessao.chegada) }}{% else %}{{ status_label.get(p.status, '') }}{% endif %}</div>
       {% else %}
-        <div class="sg">{{ p.segmento }}</div>
+        <div class="st">livre</div>
       {% endif %}
     </div>
     {% endfor %}
   </div>
-  <div class="legenda-salao" style="margin-top:12px;">
-    <span><i style="background:#fff; border-color:#e5e7eb;"></i>livre</span>
-    <span><i style="background:#fef9c3; border-color:#eab308;"></i>reservada (paciente ainda não puncionado)</span>
-    <span><i style="background:#ffedd5; border-color:#f97316;"></i>pré-QT</span>
-    <span><i style="background:#dbeafe; border-color:#60a5fa;"></i>QT</span>
-    <span><i style="background:#ede9fe; border-color:#7c3aed;"></i>retirada</span>
-    <span><i style="background:#dcfce7; border-color:#22c55e;"></i>higienização</span>
+</div>
+
+<!-- ═══ MODAL: ALTERAR HORÁRIO/POLTRONA ═══ -->
+<div id="modal-alterar" class="modal-overlay" style="display:none;" onclick="if(event.target===this) fechar('modal-alterar')">
+  <div class="modal-box" style="max-width:460px;">
+    <div class="modal-header">
+      <span class="modal-title" id="alt-nome">Alterar</span>
+      <button class="modal-close" onclick="fechar('modal-alterar')">✕</button>
+    </div>
+    <form method="post" id="alt-form">
+      <input type="hidden" name="data_sessao" value="{{ data }}">
+      <div class="form-row">
+        <div><label for="alt-horario">Horário</label><input type="time" id="alt-horario" name="horario" required></div>
+        <div><label for="alt-poltrona">Poltrona</label>{{ select_poltrona('poltrona', none, 'alt-poltrona') }}</div>
+      </div>
+      <button type="submit" class="btn btn-verde btn-lg" style="width:100%; margin-top:20px;">Salvar</button>
+    </form>
+    <form method="post" id="alt-remover" style="margin-top:16px; text-align:center;"
+          onsubmit="return confirm('Tirar este paciente da lista de hoje?')">
+      <input type="hidden" name="data_sessao" value="{{ data }}">
+      <button type="submit" class="link-remover">Tirar da lista de hoje (não veio)</button>
+    </form>
   </div>
 </div>
 
-<!-- ═══════════════════════ TABELA PRINCIPAL ════════════════ -->
-<div class="card">
-  <h2 style="margin-bottom:6px;">Escala do dia — {{ data }}</h2>
-  <p class="no-print" style="font-size:13px; color:#6b7280; margin-bottom:16px;">
-    Horário e poltrona são os que a equipe escolheu — mude na própria linha e salve.
-    "Fim previsto" usa o tempo do protocolo do paciente; o real fica no <a href="/relatorio?data={{ data }}">Relatório</a>.
-  </p>
-  <table class="tabela-agenda">
-    <thead>
-      <tr>
-        <th>Início</th>
-        <th>Poltrona</th>
-        <th>Fim previsto</th>
-        <th>Paciente</th>
-        <th>Prontuário</th>
-        <th>Telefone</th>
-        <th>Protocolo</th>
-        <th>Tipo</th>
-        <th>Confirmação</th>
-        <th class="no-print">Alterar</th>
-        <th class="no-print"></th>
-      </tr>
-    </thead>
-    <tbody id="tabela-body">
-      {% if sessoes %}
-        {% for s in sessoes %}
-          {% set ag = ag_map.get(s.paciente.nome) %}
-          {% set cor = s.paciente.cor_qt %}
-          <tr class="row-{{ cor }}">
-            <td class="hora">{{ fmt(s.chegada) }}</td>
-            <td>
-              <span class="poltrona-badge">{{ s.poltrona }}</span>
-              {% if sobreposicoes.get(s.paciente.nome) %}
-                <div style="font-size:11px; color:#b45309; margin-top:4px;" title="Só um aviso — o sistema não impede.">
-                  ⚠ sobrepõe com {{ sobreposicoes[s.paciente.nome] | map('truncate', 18, True, '…') | join(', ') }}
-                </div>
-              {% endif %}
-            </td>
-            <td style="font-size:13px; color:#374151;">{{ fmt(s.saida_est) }}</td>
-            <td>
-              <strong title="{{ ag.nome_mae or '' }}{% if ag.nome_mae and ag.data_nascimento %} · {% endif %}{{ ag.data_nascimento or '' }}"
-                style="cursor:help;">{{ s.paciente.nome }}</strong>
-            </td>
-            <td style="font-size:13px; color:#374151;">{{ ag.num_prontuario or '—' }}</td>
-            <td style="font-size:13px; color:#374151;">{{ ag.telefone or '—' }}</td>
-            <td style="font-size:13px; color:#4b5563;">{{ labels.get(s.paciente.protocolo, s.paciente.protocolo) }}</td>
-            <td>
-              {% if ag.status == 'agendado' %}
-                <span class="badge badge-azul" style="font-size:12px;">agendado</span>
-              {% else %}
-                <span class="badge" style="background:#f3f4f6; color:#6b7280; font-size:12px;">walk-in</span>
-              {% endif %}
-            </td>
-            <td>
-              {% if ag.confirmado == 'sim' %}
-                <span class="badge badge-verde">Confirmado</span>
-              {% elif ag.confirmado == 'nao' %}
-                <span class="badge badge-vermelho">Não confirmou</span>
-              {% else %}
-                <span class="badge" style="background:#f3f4f6; color:#6b7280;">Pendente</span>
-              {% endif %}
-            </td>
-            <td class="no-print" style="white-space:nowrap;">{{ campos_alocacao(ag, fmt(s.chegada)) }}</td>
-            <td class="no-print">
-              <form method="post" action="/remover/{{ ag.ag_id }}" style="margin:0;" onsubmit="return confirm('Remover {{ ag.nome }} deste dia?')">
-                <input type="hidden" name="data_sessao" value="{{ data }}">
-                <button type="submit" class="btn btn-ghost btn-sm"
-                  style="padding:4px 10px; font-size:13px; color:#ef4444;">✕</button>
-              </form>
-            </td>
-          </tr>
-        {% endfor %}
-      {% else %}
-        <tr>
-          <td colspan="11">
-            <div class="empty">
-              Nenhum paciente com horário e poltrona neste dia.
-              {% if pendentes %}Aloque os pacientes do quadro "Para alocar" acima.{% else %}Clique em <strong>+ Walk-in</strong> para adicionar.{% endif %}
-            </div>
-          </td>
-        </tr>
-      {% endif %}
-    </tbody>
-  </table>
-</div>
-
-<!-- ═══════════════════════ MODAL WALK-IN ═══════════════════ -->
-<div id="modal-walkin" class="modal-overlay" style="display:none;"
-     onclick="if(event.target===this) this.style.display='none'">
+<!-- ═══ MODAL: WALK-IN ═══ -->
+<div id="modal-walkin" class="modal-overlay" style="display:none;" onclick="if(event.target===this) fechar('modal-walkin')">
   <div class="modal-box">
     <div class="modal-header">
-      <span class="modal-title">+ Walk-in</span>
-      <button class="modal-close" onclick="document.getElementById('modal-walkin').style.display='none'">✕</button>
+      <span class="modal-title">+ Walk-in (hoje)</span>
+      <button class="modal-close" onclick="fechar('modal-walkin')">✕</button>
     </div>
-
     <form method="post" action="/adicionar">
       <input type="hidden" name="data_sessao" value="{{ data }}">
 
-      <!-- Linha 1: identificação -->
       <div class="form-row">
-        <div class="field">
-          <label for="m_nome">Nome do paciente</label>
-          <input type="text" id="m_nome" name="nome" placeholder="Ex.: Maria Silva"
-            autocomplete="off" required>
-        </div>
-        <div class="field">
-          <label for="m_num_prontuario">Nº do prontuário</label>
-          <input type="text" id="m_num_prontuario" name="num_prontuario"
-            placeholder="Ex.: 2024/003812" autocomplete="off">
-        </div>
-        <div class="field">
-          <label for="m_telefone">Telefone</label>
-          <input type="text" id="m_telefone" name="telefone"
-            placeholder="Ex.: (88) 99999-0000" autocomplete="off" inputmode="tel">
-        </div>
+        <div class="field-largo"><label for="m_nome">Nome do paciente *</label>
+          <input type="text" id="m_nome" name="nome" autocomplete="off" required></div>
       </div>
-      <div class="form-row" style="margin-top:10px;">
-        <div class="field">
-          <label for="m_nome_mae">Nome da mãe</label>
-          <input type="text" id="m_nome_mae" name="nome_mae" placeholder="Ex.: Ana Silva"
-            autocomplete="off">
-        </div>
-        <div class="field">
-          <label for="m_data_nascimento">Data de nascimento</label>
-          <input type="text" id="m_data_nascimento" name="data_nascimento"
-            placeholder="DD/MM/AAAA" autocomplete="off" inputmode="numeric" maxlength="10">
-        </div>
-      </div>
-
-      <!-- Linha 2: protocolo + tempos -->
-      <div class="form-row" style="margin-top:10px;">
-        <div class="field-largo">
-          <label for="m_protocolo">Protocolo de quimioterapia</label>
+      <div class="form-row" style="margin-top:12px;">
+        <div class="field-largo"><label for="m_protocolo">Protocolo *</label>
           <select id="m_protocolo" name="protocolo" required>
-            <option value="" disabled selected>— selecione —</option>
+            <option value="" disabled selected>Escolher…</option>
             {% for grupo, slugs in grupos.items() %}
               <optgroup label="{{ grupo }}">
-                {% for slug in slugs %}
-                  <option value="{{ slug }}">{{ labels[slug] }}</option>
-                {% endfor %}
+                {% for slug in slugs %}<option value="{{ slug }}">{{ labels[slug] }}</option>{% endfor %}
               </optgroup>
             {% endfor %}
-            <optgroup label="— Personalizado">
-              <option value="outro">Outro protocolo...</option>
-            </optgroup>
-          </select>
-        </div>
-        <div class="field" id="m_pre-med-field" style="display:none;">
-          <label for="m_pre_override">Pré-QT</label>
-          <select id="m_pre_override" name="pre_override">
-            <option value="Z">Z — sem pré-QT (0 min)</option>
-            <option value="A">A — mínima (15 min)</option>
-            <option value="B">B — padrão (35 min)</option>
-            <option value="C">C — longa com hidratação (90 min)</option>
-          </select>
-        </div>
-        <div class="field" id="m_qt-field" style="display:none;">
-          <label for="m_qt_override_min">Tempo QT (min)</label>
-          <input type="number" id="m_qt_override_min" name="qt_override_min"
-            min="5" max="600" style="width:100%;">
-        </div>
-        <div class="field" id="m_intervalo-field" style="display:none;">
-          <label for="m_intervalo_ciclo_dias">Intervalo entre ciclos (dias)</label>
-          <input type="number" id="m_intervalo_ciclo_dias" name="intervalo_ciclo_dias"
-            min="1" max="365" style="width:100%;">
-        </div>
-        <div class="field" id="m_ciclos-field" style="display:none;">
-          <label for="m_total_ciclos">Nº de ciclos (prescrito)</label>
-          <input type="number" id="m_total_ciclos" name="total_ciclos"
-            min="1" max="100" style="width:100%;" placeholder="Ex.: 4">
-        </div>
-        <div class="field" id="m_previos-field" style="display:none;">
-          <label for="m_ciclos_previos">Ciclos já feitos</label>
-          <input type="number" id="m_ciclos_previos" name="ciclos_previos"
-            min="0" max="100" style="width:100%;" placeholder="Só se já estava em tratamento">
-        </div>
+            <optgroup label="Outro"><option value="outro">Outro protocolo (digitar)</option></optgroup>
+          </select></div>
+      </div>
+      <div id="m_custom" class="form-row" style="margin-top:12px; display:none;">
+        <div class="field"><label for="m_protocolo_custom">Nome do protocolo</label>
+          <input type="text" id="m_protocolo_custom" name="protocolo_custom" autocomplete="off"></div>
+        <div class="field"><label for="m_cor_qt_override">Duração aproximada</label>
+          <select id="m_cor_qt_override" name="cor_qt_override">
+            <option value="verde">Menos de 1h</option>
+            <option value="azul" selected>1h a 2h</option>
+            <option value="amarelo">2h a 4h</option>
+            <option value="vermelho">Mais de 4h</option>
+          </select></div>
+      </div>
+      <div class="form-row" style="margin-top:12px;">
+        <div><label for="m_horario">Horário</label><input type="time" id="m_horario" name="horario"></div>
+        <div><label for="m_poltrona">Poltrona</label>{{ select_poltrona('poltrona', none, 'm_poltrona') }}</div>
+      </div>
+      <div class="form-row" style="margin-top:12px;">
+        <div class="field"><label for="m_num_prontuario">Prontuário</label>
+          <input type="text" id="m_num_prontuario" name="num_prontuario" autocomplete="off"></div>
+        <div class="field"><label for="m_telefone">Telefone</label>
+          <input type="text" id="m_telefone" name="telefone" autocomplete="off" inputmode="tel"></div>
       </div>
 
-      <!-- Campos do protocolo personalizado (visível apenas quando "outro" selecionado) -->
-      <div id="m_protocolo_custom_fields" style="display:none; margin-top:10px;">
-        <div class="form-row">
-          <div class="field-largo">
-            <label for="m_protocolo_custom">Nome do protocolo</label>
-            <input type="text" id="m_protocolo_custom" name="protocolo_custom"
-              placeholder="Ex.: FOLFIRINOX, Carboplatina AUC6..." autocomplete="off">
-          </div>
-          <div class="field">
-            <label for="m_cor_qt_override">Cor / duração estimada</label>
-            <select id="m_cor_qt_override" name="cor_qt_override">
-              <option value="verde">Verde — menos de 1h</option>
-              <option value="azul" selected>Azul — 1h a 2h</option>
-              <option value="amarelo">Amarelo — 2h a 4h</option>
-              <option value="vermelho">Vermelho — mais de 4h</option>
-            </select>
-          </div>
+      <details style="margin-top:16px;">
+        <summary style="cursor:pointer; font-size:16px; font-weight:600; color:#374151;">Mais dados (opcional)</summary>
+        <div class="form-row" style="margin-top:12px;">
+          <div class="field"><label for="m_nome_mae">Nome da mãe</label><input type="text" id="m_nome_mae" name="nome_mae" autocomplete="off"></div>
+          <div class="field"><label for="m_data_nascimento">Nascimento</label>
+            <input type="text" id="m_data_nascimento" name="data_nascimento" placeholder="DD/MM/AAAA" inputmode="numeric" maxlength="10"></div>
         </div>
-        <p style="font-size:12px; color:#9ca3af; margin-top:6px;">
-          Preencha também o tempo de QT, pré-QT e intervalo de ciclo nos campos acima.
-        </p>
-      </div>
+        <div class="form-row" style="margin-top:12px;">
+          <div class="field"><label for="m_pre_override">Pré-QT</label>
+            <select id="m_pre_override" name="pre_override">
+              <option value="Z">Sem pré-QT</option>
+              <option value="A">Curta (15 min)</option>
+              <option value="B" selected>Padrão (35 min)</option>
+              <option value="C">Longa, com hidratação (90 min)</option>
+            </select></div>
+          <div class="field"><label for="m_qt_override_min">QT (minutos)</label>
+            <input type="number" id="m_qt_override_min" name="qt_override_min" min="5" max="600"></div>
+        </div>
+        <div class="form-row" style="margin-top:12px;">
+          <div class="field"><label for="m_total_ciclos">Ciclos prescritos</label><input type="number" id="m_total_ciclos" name="total_ciclos" min="1" max="100"></div>
+          <div class="field"><label for="m_ciclos_previos">Ciclos já feitos</label><input type="number" id="m_ciclos_previos" name="ciclos_previos" min="0" max="100"></div>
+          <div class="field"><label for="m_intervalo_ciclo_dias">Intervalo (dias)</label><input type="number" id="m_intervalo_ciclo_dias" name="intervalo_ciclo_dias" min="1" max="365"></div>
+        </div>
+        <div style="display:flex; gap:20px; flex-wrap:wrap; margin-top:12px;">
+          <label style="display:flex; align-items:center; gap:8px; margin:0;"><input type="checkbox" name="is_convenio" value="1" style="width:18px; height:18px;"> Convênio</label>
+          <label style="display:flex; align-items:center; gap:8px; margin:0;"><input type="checkbox" name="ordem_medica" value="1" style="width:18px; height:18px;"> Ordem médica</label>
+        </div>
+      </details>
 
-      <!-- Linha 3: prioridades -->
-      <div class="form-row" style="margin-top:10px; align-items:center;">
-        <div class="field">
-          <label for="m_horario">Horário de início</label>
-          <input type="time" id="m_horario" name="horario">
-        </div>
-        <div class="field">
-          <label for="m_poltrona">Poltrona</label>
-          <select id="m_poltrona" name="poltrona">
-            <option value="">— escolher depois —</option>
-            {% for n, seg in opcoes_poltrona %}<option value="{{ n }}">{{ n }} · {{ seg }}</option>{% endfor %}
-          </select>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:6px; padding-top:20px;">
-          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; font-size:13px;">
-            <input type="checkbox" id="m_is_convenio" name="is_convenio" value="1"
-              style="width:16px; height:16px;">
-            Convênio ({{ faixa_convenio }})
-          </label>
-          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; font-size:13px;">
-            <input type="checkbox" id="m_ordem_medica" name="ordem_medica" value="1"
-              style="width:16px; height:16px;">
-            Ordem médica — deve ser hoje
-          </label>
-        </div>
-        <div style="padding-top:20px; margin-left:auto;">
-          <button type="submit" class="btn btn-primary">+ Adicionar</button>
-        </div>
-      </div>
+      <button type="submit" class="btn btn-verde btn-lg" style="width:100%; margin-top:20px;">Adicionar</button>
     </form>
   </div>
 </div>
 
 <script>
+function abrir(id) { document.getElementById(id).style.display = 'flex'; }
+function fechar(id) { document.getElementById(id).style.display = 'none'; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { fechar('modal-walkin'); fechar('modal-alterar'); } });
+
+function alterar(agId, nome, horario, poltrona) {
+  document.getElementById('alt-nome').textContent = nome;
+  document.getElementById('alt-form').action = '/alocar/' + agId;
+  document.getElementById('alt-remover').action = '/remover/' + agId;
+  document.getElementById('alt-horario').value = horario;
+  document.getElementById('alt-poltrona').value = String(poltrona);
+  abrir('modal-alterar');
+}
+
 (function () {
-  var PROT_BUCKET    = {{ protocolo_json | safe }};
-  var PROT_QT        = {{ qt_json | safe }};
-  var PROT_INTERVALO = {{ intervalo_json | safe }};
-
-  var sel            = document.getElementById('m_protocolo');
-  var preField       = document.getElementById('m_pre-med-field');
-  var preSel         = document.getElementById('m_pre_override');
-  var qtField        = document.getElementById('m_qt-field');
-  var qtInput        = document.getElementById('m_qt_override_min');
-  var intervaloField = document.getElementById('m_intervalo-field');
-  var intervaloInput = document.getElementById('m_intervalo_ciclo_dias');
-  var ciclosField    = document.getElementById('m_ciclos-field');
-  var previosField   = document.getElementById('m_previos-field');
-
-  var customFields = document.getElementById('m_protocolo_custom_fields');
-
+  var PRE = {{ protocolo_json | safe }}, QT = {{ qt_json | safe }}, INTERVALO = {{ intervalo_json | safe }};
+  var sel = document.getElementById('m_protocolo');
   sel.addEventListener('change', function () {
-    var v        = this.value;
-
-    if (v === 'outro') {
-      customFields.style.display = '';
-      preField.style.display = '';
-      preSel.value = 'B';
-      qtField.style.display = '';
-      qtInput.value = '';
-      intervaloField.style.display = '';
-      intervaloInput.value = '';
-      ciclosField.style.display = ''; previosField.style.display = '';
-      return;
-    }
-
-    customFields.style.display = 'none';
-    var bucket   = PROT_BUCKET[v];
-    var qt       = PROT_QT[v];
-    var intervalo = PROT_INTERVALO[v];
-    if (bucket)   { preSel.value = bucket; preField.style.display = ''; }
-    else          { preField.style.display = 'none'; }
-    if (qt)       { qtInput.value = qt; qtField.style.display = ''; }
-    else          { qtField.style.display = 'none'; }
-    if (intervalo){ intervaloInput.value = intervalo; intervaloField.style.display = ''; }
-    else          { intervaloField.style.display = 'none'; }
-    ciclosField.style.display = ''; previosField.style.display = '';
+    var v = this.value, custom = document.getElementById('m_custom');
+    custom.style.display = v === 'outro' ? '' : 'none';
+    document.getElementById('m_protocolo_custom').required = v === 'outro';
+    if (v === 'outro') { document.querySelector('#modal-walkin details').open = true; return; }
+    if (PRE[v]) document.getElementById('m_pre_override').value = PRE[v];
+    if (QT[v]) document.getElementById('m_qt_override_min').value = QT[v];
+    if (INTERVALO[v]) document.getElementById('m_intervalo_ciclo_dias').value = INTERVALO[v];
   });
-
   var nasc = document.getElementById('m_data_nascimento');
-  if (nasc) {
-    nasc.addEventListener('input', function () {
-      var v = this.value.replace(/\D/g, '').slice(0, 8);
-      if (v.length >= 5)      v = v.slice(0,2) + '/' + v.slice(2,4) + '/' + v.slice(4);
-      else if (v.length >= 3) v = v.slice(0,2) + '/' + v.slice(2);
-      this.value = v;
-    });
-  }
+  nasc.addEventListener('input', function () {
+    var v = this.value.replace(/\D/g, '').slice(0, 8);
+    if (v.length >= 5) v = v.slice(0,2) + '/' + v.slice(2,4) + '/' + v.slice(4);
+    else if (v.length >= 3) v = v.slice(0,2) + '/' + v.slice(2);
+    this.value = v;
+  });
 })();
 </script>
-
-
 {% endblock %}
